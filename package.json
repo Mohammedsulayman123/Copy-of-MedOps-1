@@ -12,6 +12,7 @@
     "@capacitor/android": "^8.0.1",
     "@capacitor/cli": "^8.0.1",
     "@capacitor/core": "^8.0.1",
+    "firebase": "^12.8.0",
     "leaflet": "1.9.4",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",

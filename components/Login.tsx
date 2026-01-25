@@ -1,6 +1,9 @@
 
 import React, { useState } from 'react';
 import { UserRole, User } from '../types';
+import { auth } from '../services/firebase';
+import { signInAnonymously, signInWithEmailAndPassword } from 'firebase/auth';
+import { createUserProfile, getUserProfile } from '../services/db';
 
 interface LoginProps {
   onLogin: (user: User) => void;
@@ -8,44 +11,84 @@ interface LoginProps {
 
 const Login: React.FC<LoginProps> = ({ onLogin }) => {
   const [activeTab, setActiveTab] = useState<'volunteer' | 'ngo'>('volunteer');
-  
+
   // Volunteer State
   const [volId, setVolId] = useState('');
-  
+
   // NGO State
   const [ngoId, setNgoId] = useState('');
   const [ngoPassword, setNgoPassword] = useState('');
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const handleVolunteerSubmit = (e: React.FormEvent) => {
+  const handleVolunteerSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    
+    setLoading(true);
+
     // Simple validation (matches pattern VOL-XXXX)
     if (volId.toUpperCase().startsWith('VOL-')) {
-      onLogin({
-        id: volId.toUpperCase(),
-        role: UserRole.VOLUNTEER,
-        name: 'Volunteer ' + volId.split('-')[1]
-      });
+      try {
+        const result = await signInAnonymously(auth);
+        const uid = result.user.uid;
+
+        // Optimistic Login: Create/Merge profile blindly without checking first
+        // This is much faster and works offline immediately
+        const profile: User = {
+          id: volId.toUpperCase(),
+          role: UserRole.VOLUNTEER,
+          name: 'Volunteer ' + volId.split('-')[1],
+          lastSync: new Date().toISOString()
+        };
+
+        // Fire and forget (or await if we want to ensure write persistence first)
+        // With offline mode, this returns almost instantly
+        await createUserProfile(uid, profile);
+
+        // Explicitly update App state to avoid race conditions with onAuthStateChanged
+        onLogin(profile);
+
+      } catch (err: any) {
+        setError('Login failed: ' + err.message);
+        setLoading(false);
+      }
     } else {
       setError('Invalid Volunteer ID format. Use VOL-1023 style.');
+      setLoading(false);
     }
   };
 
-  const handleNGOSubmit = (e: React.FormEvent) => {
+  const handleNGOSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setLoading(true);
 
-    // Mock verification
     if (ngoId && ngoPassword) {
-      onLogin({
-        id: ngoId.toUpperCase(),
-        role: UserRole.NGO,
-        organization: ngoId.split('-')[1] || ngoId
-      });
+      try {
+        // Assume ID is the email prefix for simplicity
+        const email = ngoId.includes('@') ? ngoId : `${ngoId.toLowerCase()}@medops.app`;
+        const result = await signInWithEmailAndPassword(auth, email, ngoPassword);
+
+        // Optimistic Profile Creation for NGO
+        const ngoProfile: User = {
+          id: ngoId.toUpperCase(),
+          role: UserRole.NGO,
+          organization: ngoId.split('-')[1] || ngoId,
+          lastSync: new Date().toISOString()
+        };
+
+        // Create/Ensure profile exists in DB
+        await createUserProfile(result.user.uid, ngoProfile);
+
+        // Immediate State Update
+        onLogin(ngoProfile);
+      } catch (err: any) {
+        setError('Authentication failed. Check credentials.');
+        setLoading(false);
+      }
     } else {
       setError('Please provide both NGO ID and Password.');
+      setLoading(false);
     }
   };
 
@@ -61,21 +104,19 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
       <div className="flex border-b">
         <button
           onClick={() => setActiveTab('volunteer')}
-          className={`flex-1 py-4 text-sm font-medium transition-colors ${
-            activeTab === 'volunteer' 
-              ? 'text-emerald-600 border-b-2 border-emerald-600 bg-emerald-50/30' 
-              : 'text-slate-500 hover:text-slate-700'
-          }`}
+          className={`flex-1 py-4 text-sm font-medium transition-colors ${activeTab === 'volunteer'
+            ? 'text-emerald-600 border-b-2 border-emerald-600 bg-emerald-50/30'
+            : 'text-slate-500 hover:text-slate-700'
+            }`}
         >
           Volunteer Login
         </button>
         <button
           onClick={() => setActiveTab('ngo')}
-          className={`flex-1 py-4 text-sm font-medium transition-colors ${
-            activeTab === 'ngo' 
-              ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50/30' 
-              : 'text-slate-500 hover:text-slate-700'
-          }`}
+          className={`flex-1 py-4 text-sm font-medium transition-colors ${activeTab === 'ngo'
+            ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50/30'
+            : 'text-slate-500 hover:text-slate-700'
+            }`}
         >
           NGO Login
         </button>
@@ -99,27 +140,30 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                 value={volId}
                 onChange={(e) => setVolId(e.target.value)}
                 className="w-full px-4 py-3 rounded-lg border border-slate-200 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all outline-none"
+                disabled={loading}
               />
               <p className="mt-2 text-xs text-slate-400">Login using Volunteer ID only (no password required)</p>
             </div>
             <button
               type="submit"
-              className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 px-4 rounded-lg transition-colors shadow-lg shadow-emerald-200"
+              disabled={loading}
+              className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 px-4 rounded-lg transition-colors shadow-lg shadow-emerald-200 disabled:opacity-50"
             >
-              Enter Dashboard
+              {loading ? 'Authenticating...' : 'Enter Dashboard'}
             </button>
           </form>
         ) : (
           <form onSubmit={handleNGOSubmit} className="space-y-6">
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-2">NGO ID</label>
+                <label className="block text-sm font-semibold text-slate-700 mb-2">NGO ID / Email</label>
                 <input
                   type="text"
                   placeholder="e.g. NGO-ALPHA"
                   value={ngoId}
                   onChange={(e) => setNgoId(e.target.value)}
                   className="w-full px-4 py-3 rounded-lg border border-slate-200 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all outline-none"
+                  disabled={loading}
                 />
               </div>
               <div>
@@ -130,14 +174,16 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
                   value={ngoPassword}
                   onChange={(e) => setNgoPassword(e.target.value)}
                   className="w-full px-4 py-3 rounded-lg border border-slate-200 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all outline-none"
+                  disabled={loading}
                 />
               </div>
             </div>
             <button
               type="submit"
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg transition-colors shadow-lg shadow-blue-200"
+              disabled={loading}
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg transition-colors shadow-lg shadow-blue-200 disabled:opacity-50"
             >
-              Secure Login
+              {loading ? 'Verifying...' : 'Secure Login'}
             </button>
           </form>
         )}

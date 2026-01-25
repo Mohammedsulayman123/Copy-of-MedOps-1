@@ -1,85 +1,77 @@
-
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { UserRole, User, AppData, FieldLog, Project, WASHReport } from './types';
+import { UserRole, User, AppData } from './types';
 import Login from './components/Login';
 import VolunteerDashboard from './components/VolunteerDashboard';
 import NGODashboard from './components/NGODashboard';
 import Navbar from './components/Navbar';
+import { auth } from './services/firebase';
+import { onAuthStateChanged, signOut } from 'firebase/auth';
+import { getUserProfile, subscribeToLogs, subscribeToProjects, subscribeToReports } from './services/db';
 
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
-  const [isSyncing, setIsSyncing] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false); // Managed by Firestore internally mostly, but we can keep for UI
   const [data, setData] = useState<AppData>({ logs: [], projects: [], reports: [] });
+  const [loading, setLoading] = useState(true);
 
-  // Persistence: Load Auth and Data
+  // Auth Listener
   useEffect(() => {
-    const savedUser = localStorage.getItem('humanity_user');
-    const savedData = localStorage.getItem('humanity_data');
-    
-    if (savedUser) setUser(JSON.parse(savedUser));
-    if (savedData) {
-      const parsed = JSON.parse(savedData);
-      setData({
-        logs: parsed.logs || [],
-        projects: parsed.projects || [],
-        reports: parsed.reports || []
-      });
-    }
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser) {
+        // Fetch profile
+        const profile = await getUserProfile(firebaseUser.uid);
+        if (profile) {
+          setUser({ ...profile, lastSync: new Date().toISOString() });
+        } else {
+          // If no profile (shouldn't happen if Login handles it, but handles fresh signups)
+          // For now, if no profile, we might wait or set a temporary user
+          console.log("No profile found for user");
+        }
+      } else {
+        setUser(null);
+      }
+      setLoading(false);
+    });
+    return () => unsubscribe();
+  }, []);
 
+  // Data Subscriptions (only when logged in)
+  useEffect(() => {
+    if (!user) return;
+
+    const unsubLogs = subscribeToLogs((logs) => setData(prev => ({ ...prev, logs })));
+    const unsubReports = subscribeToReports((reports) => setData(prev => ({ ...prev, reports })));
+    const unsubProjects = subscribeToProjects((projects) => setData(prev => ({ ...prev, projects })));
+
+    return () => {
+      unsubLogs();
+      unsubReports();
+      unsubProjects();
+    };
+  }, [user?.id]); // Re-subscribe if user changes (or just on mount/unmount of auth)
+
+  // Online Status
+  useEffect(() => {
     const handleOnline = () => setIsOnline(true);
     const handleOffline = () => setIsOnline(false);
-
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
-
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
   }, []);
 
-  // Sync Logic
-  useEffect(() => {
-    if (isOnline) {
-      const hasUnsynced = 
-        data.logs.some(l => !l.synced) || 
-        data.projects.some(p => !p.synced) ||
-        data.reports.some(r => !r.synced);
-
-      if (hasUnsynced) {
-        setIsSyncing(true);
-        const timer = setTimeout(() => {
-          const syncedData: AppData = {
-            logs: data.logs.map(l => ({ ...l, synced: true })),
-            projects: data.projects.map(p => ({ ...p, synced: true })),
-            reports: data.reports.map(r => ({ ...r, synced: true }))
-          };
-          setData(syncedData);
-          localStorage.setItem('humanity_data', JSON.stringify(syncedData));
-          setIsSyncing(false);
-        }, 1500);
-        return () => clearTimeout(timer);
-      }
-    }
-  }, [isOnline, data]);
-
-  const updateData = useCallback((newData: AppData) => {
-    setData(newData);
-    localStorage.setItem('humanity_data', JSON.stringify(newData));
-  }, []);
-
-  const handleLogin = (userData: User) => {
-    const enrichedUser = { ...userData, lastSync: new Date().toISOString() };
-    setUser(enrichedUser);
-    localStorage.setItem('humanity_user', JSON.stringify(enrichedUser));
-  };
-
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await signOut(auth);
     setUser(null);
-    localStorage.removeItem('humanity_user');
   };
+
+  if (loading) {
+    return <div className="min-h-screen flex items-center justify-center bg-slate-50 text-emerald-600 font-bold">Loading...</div>;
+  }
 
   return (
     <HashRouter>
@@ -94,47 +86,48 @@ const App: React.FC = () => {
         )}
 
         {user && (
-          <Navbar 
-            user={user} 
-            onLogout={handleLogout} 
-            isOnline={isOnline} 
-            isSyncing={isSyncing} 
+          <Navbar
+            user={user}
+            onLogout={handleLogout}
+            isOnline={isOnline}
+            isSyncing={isSyncing}
           />
         )}
-        
+
         <main className="flex-grow flex flex-col items-center p-4">
           <Routes>
-            <Route 
-              path="/login" 
+            <Route
+              path="/login"
               element={
                 !user ? (
-                  <div className="flex-grow flex items-center"><Login onLogin={handleLogin} /></div>
+                  // Login component now handles auth and redirect trigger
+                  <div className="flex-grow flex items-center"><Login onLogin={(u) => setUser(u)} /></div>
                 ) : (
                   <Navigate to={user.role === UserRole.VOLUNTEER ? "/volunteer" : "/ngo"} replace />
                 )
-              } 
+              }
             />
-            
-            <Route 
-              path="/volunteer" 
+
+            <Route
+              path="/volunteer"
               element={
                 user?.role === UserRole.VOLUNTEER ? (
-                  <VolunteerDashboard user={user} isOnline={isOnline} data={data} onUpdate={updateData} />
+                  <VolunteerDashboard user={user} isOnline={isOnline} data={data} />
                 ) : (
                   <Navigate to="/login" replace />
                 )
-              } 
+              }
             />
-            
-            <Route 
-              path="/ngo" 
+
+            <Route
+              path="/ngo"
               element={
                 user?.role === UserRole.NGO ? (
-                  <NGODashboard user={user} isOnline={isOnline} data={data} onUpdate={updateData} />
+                  <NGODashboard user={user} isOnline={isOnline} data={data} />
                 ) : (
                   <Navigate to="/login" replace />
                 )
-              } 
+              }
             />
 
             <Route path="*" element={<Navigate to="/login" replace />} />

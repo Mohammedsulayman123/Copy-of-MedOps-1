@@ -2,12 +2,12 @@
 import React, { useState } from 'react';
 import { User, AppData, FieldLog, ReportType, WASHReport, ReportStatus } from '../types';
 import { OfflineAI } from '../services/OfflineAI';
+import { addLog, addReport } from '../services/db';
 
 interface VolunteerDashboardProps {
   user: User;
   isOnline: boolean;
   data: AppData;
-  onUpdate: (data: AppData) => void;
 }
 
 const ZONES = ['Zone A', 'Zone B', 'Zone C'] as const;
@@ -16,7 +16,7 @@ const FACILITIES = {
   WATER_POINT: ['Water Point 1', 'Water Point 2', 'Water Point 3']
 };
 
-const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline, data, onUpdate }) => {
+const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline, data }) => {
   const [view, setView] = useState<'activity' | 'wash' | 'history'>('activity');
   const [reportType, setReportType] = useState<ReportType>(ReportType.TOILET);
   const [step, setStep] = useState(1);
@@ -48,7 +48,7 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
     setFormData(prev => ({ ...prev, notes: text, urgency }));
   };
 
-  const handleLogActivity = (e: React.FormEvent) => {
+  const handleLogActivity = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!activity) return;
 
@@ -61,11 +61,11 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
       synced: isOnline
     };
 
-    onUpdate({ ...data, logs: [newLog, ...data.logs] });
+    await addLog(newLog);
     setActivity('');
   };
 
-  const handleWASHSubmit = () => {
+  const handleWASHSubmit = async () => {
     const newReport: WASHReport = {
       id: Math.random().toString(36).substr(2, 9),
       type: reportType,
@@ -77,7 +77,7 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
       details: { ...formData }
     };
 
-    onUpdate({ ...data, reports: [newReport, ...(data.reports || [])] });
+    await addReport(newReport);
     setStep(1);
     setFormData({
       zone: 'Zone A',

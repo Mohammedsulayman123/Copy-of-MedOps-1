@@ -2,12 +2,12 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { User, AppData, WASHReport, ReportType, ReportStatus, FieldLog } from '../types';
 import L from 'leaflet';
+import { addReport } from '../services/db';
 
 interface NGODashboardProps {
   user: User;
   isOnline: boolean;
   data: AppData;
-  onUpdate: (data: AppData) => void;
 }
 
 interface RiskDetails {
@@ -31,7 +31,7 @@ const ZONE_COORDINATES: Record<string, L.LatLngExpression[]> = {
   ]
 };
 
-const NGODashboard: React.FC<NGODashboardProps> = ({ user, data, onUpdate }) => {
+const NGODashboard: React.FC<NGODashboardProps> = ({ user, data, isOnline }) => {
   const [selectedZoneDetail, setSelectedZoneDetail] = useState<RiskDetails | null>(null);
   const [feedType, setFeedType] = useState<'REPORTS' | 'LOGS'>('REPORTS');
   const [reportFilter, setReportFilter] = useState<'ALL' | ReportType>('ALL');
@@ -45,7 +45,7 @@ const NGODashboard: React.FC<NGODashboardProps> = ({ user, data, onUpdate }) => 
     const zones = ['Zone A', 'Zone B', 'Zone C'];
 
     return zones.map(zone => {
-      const zoneReports = data.reports.filter(r => r.zone === zone);
+      const zoneReports = data.reports.filter(r => r.zone === zone && r.status !== 'Resolved');
       let totalToiletScore = 0;
       let totalWaterScore = 0;
       let toiletCount = 0;
@@ -155,11 +155,11 @@ const NGODashboard: React.FC<NGODashboardProps> = ({ user, data, onUpdate }) => 
     }
   }, [riskAnalysis]);
 
-  const updateReportStatus = (reportId: string, status: ReportStatus) => {
-    const updatedReports = data.reports.map(r =>
-      r.id === reportId ? { ...r, status, synced: false } : r
-    );
-    onUpdate({ ...data, reports: updatedReports });
+  const updateReportStatus = async (reportId: string, status: ReportStatus) => {
+    const reportToUpdate = data.reports.find(r => r.id === reportId);
+    if (reportToUpdate) {
+      await addReport({ ...reportToUpdate, status, synced: isOnline });
+    }
   };
 
   const filteredReports = useMemo(() => {
@@ -269,7 +269,7 @@ const NGODashboard: React.FC<NGODashboardProps> = ({ user, data, onUpdate }) => 
                     <div className="w-1.5 h-1.5 rounded-full bg-red-500"></div>
                     <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Confidence: {res.confidence}</span>
                   </div>
-                  <span className="text-[8px] font-black text-slate-200 uppercase tracking-widest">{res.reportCount} Reports</span>
+                  <span className="text-[8px] font-black text-slate-200 uppercase tracking-widest">{res.reportCount} Active Reports</span>
                 </div>
               </button>
             ))}
