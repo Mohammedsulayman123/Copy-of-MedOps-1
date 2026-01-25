@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">HumanityLink</string>
+    <string name="title_activity_main">HumanityLink</string>
+    <string name="package_name">com.humanitylink.app</string>
+    <string name="custom_url_scheme">com.humanitylink.app</string>
+</resources>

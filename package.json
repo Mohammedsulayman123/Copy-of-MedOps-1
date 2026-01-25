@@ -9,10 +9,15 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "react-router-dom": "^7.13.0",
-    "react-dom": "^19.2.3",
+    "@capacitor/android": "^8.0.1",
+    "@capacitor/cli": "^8.0.1",
+    "@capacitor/core": "^8.0.1",
+    "@tensorflow-models/mobilenet": "^2.1.1",
+    "@tensorflow/tfjs": "^4.22.0",
+    "leaflet": "1.9.4",
     "react": "^19.2.3",
-    "leaflet": "1.9.4"
+    "react-dom": "^19.2.3",
+    "react-router-dom": "^7.13.0"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

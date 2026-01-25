@@ -1,6 +1,7 @@
 
 import React, { useState } from 'react';
 import { User, AppData, FieldLog, ReportType, WASHReport, ReportStatus } from '../types';
+import { OfflineAI } from '../services/OfflineAI';
 
 interface VolunteerDashboardProps {
   user: User;
@@ -19,7 +20,7 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
   const [view, setView] = useState<'activity' | 'wash' | 'history'>('activity');
   const [reportType, setReportType] = useState<ReportType>(ReportType.TOILET);
   const [step, setStep] = useState(1);
-  
+
   // Activity Log State
   const [activity, setActivity] = useState('');
   const [hours, setHours] = useState('1');
@@ -36,8 +37,16 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
     waitingTime: '',
     problems: [],
     targetGroups: [],
-    lighting: ''
+    lighting: '',
+    notes: '',
+    urgency: 'Normal'
   });
+
+  const handleNotesChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const text = e.target.value;
+    const urgency = OfflineAI.analyzeUrgency(text);
+    setFormData(prev => ({ ...prev, notes: text, urgency }));
+  };
 
   const handleLogActivity = (e: React.FormEvent) => {
     e.preventDefault();
@@ -90,26 +99,24 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
   const toggleListValue = (key: string, value: string) => {
     setFormData(prev => ({
       ...prev,
-      [key]: prev[key].includes(value) 
+      [key]: prev[key].includes(value)
         ? prev[key].filter(v => v !== value)
         : [...prev[key], value]
     }));
   };
 
   const OptionButton = ({ label, isSelected, onClick, showRadio = true }: any) => (
-    <button 
+    <button
       onClick={onClick}
-      className={`w-full p-5 rounded-2xl border-2 text-left transition-all flex items-center justify-between group ${
-        isSelected 
-          ? 'border-blue-600 bg-blue-50 text-blue-800 shadow-md' 
-          : 'border-slate-100 bg-white hover:border-slate-300 text-slate-800'
-      }`}
+      className={`w-full p-5 rounded-2xl border-2 text-left transition-all flex items-center justify-between group ${isSelected
+        ? 'border-blue-600 bg-blue-50 text-blue-800 shadow-md'
+        : 'border-slate-100 bg-white hover:border-slate-300 text-slate-800'
+        }`}
     >
       <span className="font-black uppercase tracking-tight text-sm">{label}</span>
       {showRadio && (
-        <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${
-          isSelected ? 'border-blue-600 bg-blue-600' : 'border-slate-200 group-hover:border-slate-300'
-        }`}>
+        <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${isSelected ? 'border-blue-600 bg-blue-600' : 'border-slate-200 group-hover:border-slate-300'
+          }`}>
           {isSelected && <div className="w-2 h-2 rounded-full bg-white"></div>}
         </div>
       )}
@@ -119,7 +126,7 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
   const StatusBadge = ({ status }: { status?: ReportStatus }) => {
     const currentStatus = status || 'Pending';
     const isResolved = currentStatus === 'Resolved';
-    
+
     const colors = {
       'Pending': 'border-slate-200 text-slate-400',
       'Acknowledged': 'border-blue-200 text-blue-600 bg-blue-50',
@@ -130,7 +137,7 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
     return (
       <div className={`px-2.5 py-1 rounded-full border text-[8px] font-black uppercase tracking-widest flex items-center space-x-1 ${colors[currentStatus]}`}>
         {isResolved && (
-          <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" d="M5 13l4 4L19 7"/></svg>
+          <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" d="M5 13l4 4L19 7" /></svg>
         )}
         <span>{currentStatus}</span>
       </div>
@@ -146,19 +153,19 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
           <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Active Sector: Sector-4G / {user.id}</p>
         </div>
         <div className="flex bg-slate-200 p-1 rounded-xl">
-          <button 
+          <button
             onClick={() => setView('activity')}
             className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all ${view === 'activity' ? 'bg-white shadow-sm text-emerald-600' : 'text-slate-500'}`}
           >
             Daily Log
           </button>
-          <button 
+          <button
             onClick={() => setView('wash')}
             className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all ${view === 'wash' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500'}`}
           >
             WASH Report
           </button>
-          <button 
+          <button
             onClick={() => setView('history')}
             className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all ${view === 'history' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-500'}`}
           >
@@ -172,18 +179,18 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
           <div className="bg-slate-800 p-6 rounded-3xl shadow-xl text-white">
             <h3 className="text-slate-400 text-[10px] font-black uppercase mb-4 tracking-widest">Post Field Update</h3>
             <form onSubmit={handleLogActivity} className="flex flex-col sm:flex-row gap-4">
-              <input 
-                type="text" 
-                placeholder="What did you achieve today?" 
+              <input
+                type="text"
+                placeholder="What did you achieve today?"
                 value={activity}
                 onChange={(e) => setActivity(e.target.value)}
                 className="flex-grow bg-slate-700/50 border-none rounded-2xl px-5 py-4 text-sm focus:ring-2 focus:ring-emerald-500 outline-none placeholder:text-slate-500 text-white"
               />
               <div className="flex gap-4">
-                <input 
-                  type="number" 
-                  min="0.5" 
-                  step="0.5" 
+                <input
+                  type="number"
+                  min="0.5"
+                  step="0.5"
                   value={hours}
                   onChange={(e) => setHours(e.target.value)}
                   className="w-20 bg-slate-700/50 border-none rounded-2xl px-5 py-4 text-sm focus:ring-2 focus:ring-emerald-500 outline-none text-center text-white font-bold"
@@ -274,11 +281,11 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
             <div className="flex justify-between items-center mb-4">
               <span className="text-[10px] font-black uppercase tracking-[0.2em] opacity-80">Phase {step} of {reportType === ReportType.TOILET ? 7 : 8}</span>
               <div className="flex gap-2">
-                <button 
+                <button
                   onClick={() => { setReportType(ReportType.TOILET); setStep(1); }}
                   className={`px-4 py-1.5 rounded-full text-[9px] font-black uppercase transition-all ${reportType === ReportType.TOILET ? 'bg-white text-blue-600 shadow-md' : 'bg-blue-500/50 text-white hover:bg-blue-500'}`}
                 >Toilet</button>
-                <button 
+                <button
                   onClick={() => { setReportType(ReportType.WATER_POINT); setStep(1); }}
                   className={`px-4 py-1.5 rounded-full text-[9px] font-black uppercase transition-all ${reportType === ReportType.WATER_POINT ? 'bg-white text-blue-600 shadow-md' : 'bg-blue-500/50 text-white hover:bg-blue-500'}`}
                 >Water Point</button>
@@ -296,11 +303,11 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
                 <label className="block text-[10px] font-black uppercase text-slate-400 tracking-[0.2em]">Deployment Zone</label>
                 <div className="grid grid-cols-1 gap-3">
                   {ZONES.map(z => (
-                    <OptionButton 
-                      key={z} 
-                      label={z} 
-                      isSelected={formData.zone === z} 
-                      onClick={() => { setFormData({...formData, zone: z}); setStep(2); }}
+                    <OptionButton
+                      key={z}
+                      label={z}
+                      isSelected={formData.zone === z}
+                      onClick={() => { setFormData({ ...formData, zone: z }); setStep(2); }}
                     />
                   ))}
                 </div>
@@ -312,11 +319,11 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
                 <label className="block text-[10px] font-black uppercase text-slate-400 tracking-[0.2em]">Target Facility</label>
                 <div className="grid grid-cols-1 gap-3">
                   {FACILITIES[reportType].map(f => (
-                    <OptionButton 
-                      key={f} 
-                      label={f} 
-                      isSelected={formData.facilityId === f} 
-                      onClick={() => { setFormData({...formData, facilityId: f}); setStep(3); }}
+                    <OptionButton
+                      key={f}
+                      label={f}
+                      isSelected={formData.facilityId === f}
+                      onClick={() => { setFormData({ ...formData, facilityId: f }); setStep(3); }}
                     />
                   ))}
                 </div>
@@ -330,11 +337,11 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
                 </label>
                 <div className="space-y-3">
                   {['Yes', reportType === ReportType.TOILET ? 'Partially' : 'Limited', 'No'].map(opt => (
-                    <OptionButton 
+                    <OptionButton
                       key={opt}
                       label={opt}
                       isSelected={(reportType === ReportType.TOILET ? formData.usable : formData.available) === opt}
-                      onClick={() => { setFormData({...formData, [reportType === ReportType.TOILET ? 'usable' : 'available']: opt}); setStep(4); }}
+                      onClick={() => { setFormData({ ...formData, [reportType === ReportType.TOILET ? 'usable' : 'available']: opt }); setStep(4); }}
                     />
                   ))}
                 </div>
@@ -349,14 +356,13 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
                 {reportType === ReportType.TOILET ? (
                   <div className="grid grid-cols-1 gap-2">
                     {['Broken door / no lock', 'Overflowing / clogged', 'Strong smell', 'Unsafe at night', 'No water nearby', 'Not accessible'].map(issue => (
-                      <button 
+                      <button
                         key={issue}
                         onClick={() => toggleListValue('problems', issue)}
-                        className={`p-4 rounded-xl border-2 text-left text-[11px] font-black uppercase tracking-tight transition-all flex items-center justify-between ${
-                          formData.problems.includes(issue) 
-                            ? 'bg-blue-600 text-white border-blue-600 shadow-lg' 
-                            : 'bg-white border-slate-100 text-slate-800 hover:border-slate-300'
-                        }`}
+                        className={`p-4 rounded-xl border-2 text-left text-[11px] font-black uppercase tracking-tight transition-all flex items-center justify-between ${formData.problems.includes(issue)
+                          ? 'bg-blue-600 text-white border-blue-600 shadow-lg'
+                          : 'bg-white border-slate-100 text-slate-800 hover:border-slate-300'
+                          }`}
                       >
                         {issue}
                         {formData.problems.includes(issue) && (
@@ -369,15 +375,33 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
                 ) : (
                   <div className="space-y-3">
                     {['Yes', 'No'].map(opt => (
-                      <OptionButton 
+                      <OptionButton
                         key={opt}
                         label={`Working: ${opt}`}
                         isSelected={formData.isFunctional === opt}
-                        onClick={() => { setFormData({...formData, isFunctional: opt}); setStep(5); }}
+                        onClick={() => { setFormData({ ...formData, isFunctional: opt }); setStep(5); }}
                       />
                     ))}
                   </div>
                 )}
+
+
+                <div className="mt-6">
+                  <label className="block text-[10px] font-black uppercase text-slate-400 tracking-[0.2em] mb-2">Field Notes & Urgency</label>
+                  <textarea
+                    value={formData.notes}
+                    onChange={handleNotesChange}
+                    placeholder="Describe any critical issues (e.g., 'Cholera suspected', 'Severe leak')..."
+                    className="w-full bg-slate-50 border-2 border-slate-100 rounded-xl p-4 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                    rows={3}
+                  />
+                  {formData.urgency !== 'Normal' && (
+                    <div className={`mt-2 p-3 rounded-lg flex items-center space-x-2 ${formData.urgency === 'Critical' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                      <span className="text-[10px] font-black uppercase tracking-widest">AI Flag: {formData.urgency} Priority</span>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
 
@@ -388,11 +412,11 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
                 </label>
                 <div className="space-y-3">
                   {(reportType === ReportType.TOILET ? ['Yes', 'No'] : ['Clear', 'Dirty', 'Smelly']).map(opt => (
-                    <OptionButton 
+                    <OptionButton
                       key={opt}
                       label={opt}
                       isSelected={(reportType === ReportType.TOILET ? formData.lighting : formData.quality) === opt}
-                      onClick={() => { setFormData({...formData, [reportType === ReportType.TOILET ? 'lighting' : 'quality']: opt}); setStep(6); }}
+                      onClick={() => { setFormData({ ...formData, [reportType === ReportType.TOILET ? 'lighting' : 'quality']: opt }); setStep(6); }}
                     />
                   ))}
                 </div>
@@ -405,15 +429,15 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
                   {reportType === ReportType.TOILET ? 'Population Load' : 'Congestion / Waiting'}
                 </label>
                 <div className="space-y-3">
-                  {(reportType === ReportType.TOILET 
-                    ? ['<25', '25-50', '50-100', '100+'] 
+                  {(reportType === ReportType.TOILET
+                    ? ['<25', '25-50', '50-100', '100+']
                     : ['<5 minutes', '5-15 minutes', '>15 minutes']
                   ).map(opt => (
-                    <OptionButton 
+                    <OptionButton
                       key={opt}
                       label={opt}
                       isSelected={(reportType === ReportType.TOILET ? formData.usagePressure : formData.waitingTime) === opt}
-                      onClick={() => { setFormData({...formData, [reportType === ReportType.TOILET ? 'usagePressure' : 'waitingTime']: opt}); setStep(7); }}
+                      onClick={() => { setFormData({ ...formData, [reportType === ReportType.TOILET ? 'usagePressure' : 'waitingTime']: opt }); setStep(7); }}
                     />
                   ))}
                 </div>
@@ -428,14 +452,13 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
                 {reportType === ReportType.TOILET ? (
                   <div className="grid grid-cols-1 gap-2">
                     {['Women & girls', 'Children', 'Men', 'Elderly / disabled'].map(group => (
-                      <button 
+                      <button
                         key={group}
                         onClick={() => toggleListValue('targetGroups', group)}
-                        className={`p-4 rounded-xl border-2 text-left text-[11px] font-black uppercase tracking-tight transition-all flex items-center justify-between ${
-                          formData.targetGroups.includes(group) 
-                            ? 'bg-blue-600 text-white border-blue-600 shadow-lg' 
-                            : 'bg-white border-slate-100 text-slate-800 hover:border-slate-300'
-                        }`}
+                        className={`p-4 rounded-xl border-2 text-left text-[11px] font-black uppercase tracking-tight transition-all flex items-center justify-between ${formData.targetGroups.includes(group)
+                          ? 'bg-blue-600 text-white border-blue-600 shadow-lg'
+                          : 'bg-white border-slate-100 text-slate-800 hover:border-slate-300'
+                          }`}
                       >
                         {group}
                         {formData.targetGroups.includes(group) && (
@@ -448,11 +471,11 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
                 ) : (
                   <div className="space-y-3">
                     {['<25', '25-50', '50-100', '100+'].map(opt => (
-                      <OptionButton 
+                      <OptionButton
                         key={opt}
                         label={opt}
                         isSelected={formData.usagePressure === opt}
-                        onClick={() => { setFormData({...formData, usagePressure: opt}); setStep(8); }}
+                        onClick={() => { setFormData({ ...formData, usagePressure: opt }); setStep(8); }}
                       />
                     ))}
                   </div>
@@ -465,14 +488,13 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
                 <label className="block text-[10px] font-black uppercase text-slate-400 tracking-[0.2em]">Primary Users</label>
                 <div className="grid grid-cols-1 gap-2">
                   {['Women & girls', 'Children', 'Men', 'Elderly / disabled'].map(group => (
-                    <button 
+                    <button
                       key={group}
                       onClick={() => toggleListValue('targetGroups', group)}
-                      className={`p-4 rounded-xl border-2 text-left text-[11px] font-black uppercase tracking-tight transition-all flex items-center justify-between ${
-                        formData.targetGroups.includes(group) 
-                          ? 'bg-blue-600 text-white border-blue-600 shadow-lg' 
-                          : 'bg-white border-slate-100 text-slate-800 hover:border-slate-300'
-                      }`}
+                      className={`p-4 rounded-xl border-2 text-left text-[11px] font-black uppercase tracking-tight transition-all flex items-center justify-between ${formData.targetGroups.includes(group)
+                        ? 'bg-blue-600 text-white border-blue-600 shadow-lg'
+                        : 'bg-white border-slate-100 text-slate-800 hover:border-slate-300'
+                        }`}
                     >
                       {group}
                       {formData.targetGroups.includes(group) && (
@@ -489,17 +511,18 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
           {/* Form Footer */}
           {step > 1 && (
             <div className="px-8 py-5 bg-slate-50 border-t border-slate-100 flex items-center justify-center">
-              <button 
+              <button
                 onClick={() => setStep(step - 1)}
                 className="text-[10px] font-black uppercase text-slate-400 hover:text-blue-600 transition-colors tracking-widest flex items-center space-x-2"
               >
-                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M15 19l-7-7 7-7"/></svg>
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M15 19l-7-7 7-7" /></svg>
                 <span>Back to previous step</span>
               </button>
             </div>
           )}
         </div>
       )}
+
     </div>
   );
 };
