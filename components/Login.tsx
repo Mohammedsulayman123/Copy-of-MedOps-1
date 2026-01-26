@@ -96,7 +96,19 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
         }
 
         if (err.code === 'auth/network-request-failed' || err.message?.includes('network-request-failed')) {
-          setError('NETWORK ERROR: Connection failed and no offline profile found. Please connect to internet and try again.');
+          // FALLBACK: If navigator.onLine was true but request failed, trigger Optimistic Login
+          const provisionalProfile: User = {
+            id: docId,
+            role: UserRole.VOLUNTEER,
+            name: 'Field Volunteer',
+            organization: 'WASH',
+            lastSync: new Date().toISOString()
+          };
+
+          onLogin(provisionalProfile);
+          alert("⚠️ Network Connection Failed: Switched to provisional offline mode.");
+          setLoading(false);
+          return;
         } else {
           setError('Login failed: ' + err.message);
         }
