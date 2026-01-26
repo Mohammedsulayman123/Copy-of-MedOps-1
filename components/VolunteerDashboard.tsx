@@ -6,6 +6,7 @@ import { doc, onSnapshot } from 'firebase/firestore';
 import { OfflineAI } from '../services/OfflineAI';
 import { addLog, addReport, nudgeReport } from '../services/db';
 
+
 interface VolunteerDashboardProps {
   user: User;
   isOnline: boolean;
@@ -26,7 +27,6 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
   // Activity Log State
   const [activity, setActivity] = useState('');
   const [hours, setHours] = useState('1');
-
   const [nudgeMessage, setNudgeMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -73,6 +73,10 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
     e.preventDefault();
     if (!activity) return;
 
+    if (!isOnline) {
+      alert("You are offline. Log will be saved locally and sync when online.");
+    }
+
     const newLog: FieldLog = {
       id: Math.random().toString(36).substr(2, 9),
       authorName: user.name || user.id,
@@ -84,6 +88,7 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
 
     await addLog(newLog);
     setActivity('');
+    alert("Activity Logged!");
   };
 
   /* New State for Duplicate Handling */
@@ -215,6 +220,7 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
 
   return (
     <div className="w-full max-w-4xl mx-auto space-y-6">
+
       {/* Duplicate Report Modal - Global Overlay */}
       {duplicateReport && (
         <div className="fixed inset-0 bg-slate-900/90 z-50 flex items-center justify-center p-6 backdrop-blur-sm">
@@ -251,7 +257,12 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-black text-slate-800 uppercase tracking-tighter">Field Dashboard</h1>
-          <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Active Sector: Sector-4G / {user.id}</p>
+          <div className="flex items-center space-x-2">
+            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Active Sector: Sector-4G / {user.id}</p>
+          </div>
+        </div>
+        <div className="flex items-center space-x-2">
+          {/* Offline indicator is global now in App.tsx */}
         </div>
         <div className="flex bg-slate-200 p-1 rounded-xl relative group">
           {!hasLoggedToday && (

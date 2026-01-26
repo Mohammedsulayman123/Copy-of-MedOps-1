@@ -42,7 +42,7 @@ export type ReportStatus = 'Pending' | 'Acknowledged' | 'In Progress' | 'Resolve
 export interface WASHReport {
   id: string;
   type: ReportType;
-  zone: 'Zone A' | 'Zone B' | 'Zone C';
+  zone: string;
   facilityId: string;
   timestamp: string;
   synced: boolean;
@@ -57,6 +57,8 @@ export interface WASHReport {
     waitingTime?: string;
     targetGroups?: string[];
     isFunctional?: string; // Yes, No
+    notes?: string;
+    urgency?: string;
   };
   nudges?: { userId: string; timestamp: string; }[];
 }

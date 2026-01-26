@@ -2,7 +2,7 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { User, AppData, WASHReport, ReportType, ReportStatus, FieldLog } from '../types';
 import L from 'leaflet';
-import { addReport, addZone, deleteZone, createUserProfile, deleteUser, nudgeVolunteer } from '../services/db';
+import { addReport, addZone, deleteZone, createUserProfile, deleteUser, nudgeVolunteer, addLog } from '../services/db';
 import { UserRole } from '../types';
 
 interface NGODashboardProps {
@@ -343,6 +343,10 @@ const NGODashboard: React.FC<NGODashboardProps> = ({ user, data, isOnline }) => 
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
             </div>
+
+
+            {/* Manual SMS removed */}
+
 
             <div className="p-8 overflow-y-auto space-y-4">
               {/* Add New Volunteer */}

@@ -28,11 +28,40 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
 
     // Simple validation (matches pattern VOL-XXXX)
     if (volId.toUpperCase().startsWith('VOL-')) {
+      const docId = volId.toUpperCase();
+
+      // OPTIMIZATION: Check offline status first to skip Firebase timeout
+      if (!navigator.onLine) {
+        const cached = localStorage.getItem(`cached_user_${docId}`);
+        if (cached) {
+          try {
+            const cachedProfile = JSON.parse(cached);
+            onLogin(cachedProfile);
+            alert("⚠️ Offline Mode: Logging in with cached credentials.");
+            setLoading(false);
+            return;
+          } catch (e) {
+            console.error(e);
+          }
+        } else {
+          // OPTIMISTIC LOGIN: Trust the format if offline
+          const provisionalProfile: User = {
+            id: docId,
+            role: UserRole.VOLUNTEER,
+            name: 'Field Volunteer', // Placeholder
+            organization: 'WASH',
+            lastSync: new Date().toISOString()
+          };
+
+          onLogin(provisionalProfile);
+          alert("⚠️ Offline Mode: Provisional Login. Your reports will be saved locally.");
+          setLoading(false);
+          return;
+        }
+      }
+
       try {
         const result = await signInAnonymously(auth);
-        // Use VOL-ID as the consistent key (instead of random Auth UID)
-        // This allows HQ to pre-create/manage volunteers by ID.
-        const docId = volId.toUpperCase();
 
         let profile = await getUserProfile(docId);
 
@@ -45,11 +74,32 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
           throw new Error("Access Denied. Your ID is not registered. Please contact HQ.");
         }
 
+        // Cache for offline access
+        localStorage.setItem(`cached_user_${docId}`, JSON.stringify(profile));
+
         // Explicitly update App state to avoid race conditions with onAuthStateChanged
         onLogin(profile);
 
       } catch (err: any) {
-        setError('Login failed: ' + err.message);
+        // Fallback for when navigator.onLine was true but request failed (flaky connection)
+        const cached = localStorage.getItem(`cached_user_${docId}`);
+        if (cached) {
+          try {
+            const cachedProfile = JSON.parse(cached);
+            onLogin(cachedProfile);
+            alert("⚠️ Network Error: Switched to offline mode with cached credentials.");
+            setLoading(false);
+            return;
+          } catch (e) {
+            console.error("Cache parse error", e);
+          }
+        }
+
+        if (err.code === 'auth/network-request-failed' || err.message?.includes('network-request-failed')) {
+          setError('NETWORK ERROR: Connection failed and no offline profile found. Please connect to internet and try again.');
+        } else {
+          setError('Login failed: ' + err.message);
+        }
         setLoading(false);
       }
     } else {
