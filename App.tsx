@@ -7,13 +7,13 @@ import NGODashboard from './components/NGODashboard';
 import Navbar from './components/Navbar';
 import { auth } from './services/firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { getUserProfile, subscribeToLogs, subscribeToProjects, subscribeToReports } from './services/db';
+import { getUserProfile, subscribeToLogs, subscribeToProjects, subscribeToReports, subscribeToZones, subscribeToVolunteers } from './services/db';
 
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [isSyncing, setIsSyncing] = useState(false); // Managed by Firestore internally mostly, but we can keep for UI
-  const [data, setData] = useState<AppData>({ logs: [], projects: [], reports: [] });
+  const [data, setData] = useState<AppData>({ logs: [], projects: [], reports: [], zones: [], volunteers: [] });
   const [loading, setLoading] = useState(true);
 
   // Auth Listener
@@ -44,11 +44,15 @@ const App: React.FC = () => {
     const unsubLogs = subscribeToLogs((logs) => setData(prev => ({ ...prev, logs })));
     const unsubReports = subscribeToReports((reports) => setData(prev => ({ ...prev, reports })));
     const unsubProjects = subscribeToProjects((projects) => setData(prev => ({ ...prev, projects })));
+    const unsubZones = subscribeToZones((zones) => setData(prev => ({ ...prev, zones })));
+    const unsubVolunteers = subscribeToVolunteers((volunteers) => setData(prev => ({ ...prev, volunteers })));
 
     return () => {
       unsubLogs();
       unsubReports();
       unsubProjects();
+      unsubZones();
+      unsubVolunteers();
     };
   }, [user?.id]); // Re-subscribe if user changes (or just on mount/unmount of auth)
 
@@ -135,7 +139,7 @@ const App: React.FC = () => {
         </main>
 
         <footer className="py-4 text-center text-slate-300 text-[9px] uppercase tracking-[0.2em] font-bold">
-          &copy; {new Date().getFullYear()} HumanityLink | Resilient Core v1.2
+          &copy; {new Date().getFullYear()} WASH Link | Resilient Core v1.2
         </footer>
       </div>
     </HashRouter>

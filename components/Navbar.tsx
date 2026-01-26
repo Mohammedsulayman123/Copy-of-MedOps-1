@@ -17,10 +17,10 @@ const Navbar: React.FC<NavbarProps> = ({ user, onLogout, isOnline, isSyncing }) 
       <div className="max-w-6xl mx-auto flex items-center justify-between">
         <div className="flex items-center space-x-3">
           <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold text-lg shadow-sm ${isVolunteer ? 'bg-emerald-600' : 'bg-blue-600'}`}>
-            H
+            W
           </div>
           <div className="hidden xs:block">
-            <span className="block font-bold text-slate-800 text-sm leading-none">HumanityLink</span>
+            <span className="block font-bold text-slate-800 text-sm leading-none">WASH Link</span>
             <div className="flex items-center mt-1">
               <span className={`w-2 h-2 rounded-full mr-1.5 ${isOnline ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 'bg-amber-500'} ${isSyncing ? 'animate-bounce' : ''}`}></span>
               <span className="text-[9px] text-slate-400 font-bold uppercase tracking-tighter">
@@ -33,13 +33,12 @@ const Navbar: React.FC<NavbarProps> = ({ user, onLogout, isOnline, isSyncing }) 
         <div className="flex items-center space-x-3 sm:space-x-6">
           <div className="flex flex-col items-end">
             <span className="text-xs font-bold text-slate-700">{user.name || user.organization}</span>
-            <span className={`text-[9px] px-1.5 py-0.5 rounded font-black uppercase tracking-tighter ${
-              isVolunteer ? 'bg-emerald-50 text-emerald-700' : 'bg-blue-50 text-blue-700'
-            }`}>
+            <span className={`text-[9px] px-1.5 py-0.5 rounded font-black uppercase tracking-tighter ${isVolunteer ? 'bg-emerald-50 text-emerald-700' : 'bg-blue-50 text-blue-700'
+              }`}>
               {user.role}
             </span>
           </div>
-          
+
           <div className="h-6 w-px bg-slate-100 hidden sm:block"></div>
 
           <button

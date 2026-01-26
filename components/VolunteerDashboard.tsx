@@ -1,8 +1,10 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { User, AppData, FieldLog, ReportType, WASHReport, ReportStatus } from '../types';
+import { db } from '../services/firebase';
+import { doc, onSnapshot } from 'firebase/firestore';
 import { OfflineAI } from '../services/OfflineAI';
-import { addLog, addReport } from '../services/db';
+import { addLog, addReport, nudgeReport } from '../services/db';
 
 interface VolunteerDashboardProps {
   user: User;
@@ -10,9 +12,9 @@ interface VolunteerDashboardProps {
   data: AppData;
 }
 
-const ZONES = ['Zone A', 'Zone B', 'Zone C'] as const;
+const ZONES = ['Zone A', 'Zone B', 'Zone C', 'Zone D', 'Zone E', 'Zone F', 'Zone G', 'Zone H', 'Zone I', 'Zone J'] as const;
 const FACILITIES = {
-  TOILET: ['Toilet 1', 'Toilet 2', 'Toilet 3', 'Toilet 4'],
+  TOILET: ['Toilet Block 1', 'Toilet Block 2', 'Toilet Block 3', 'Toilet Block 4'],
   WATER_POINT: ['Water Point 1', 'Water Point 2', 'Water Point 3']
 };
 
@@ -24,6 +26,25 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
   // Activity Log State
   const [activity, setActivity] = useState('');
   const [hours, setHours] = useState('1');
+
+  const [nudgeMessage, setNudgeMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!user.id) return;
+
+    // Subscribe to my own profile to check for nudges
+    const unsub = onSnapshot(doc(db, 'users', user.id), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data() as User;
+        if (data.nudges && data.nudges.length > 0) {
+          const latestNudge = data.nudges[data.nudges.length - 1];
+          setNudgeMessage(`${latestNudge.message} - ${latestNudge.sender}`);
+        }
+      }
+    });
+
+    return () => unsub();
+  }, [user.id]);
 
   // WASH Report State
   const [formData, setFormData] = useState<any>({
@@ -65,7 +86,23 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
     setActivity('');
   };
 
+  /* New State for Duplicate Handling */
+  const [duplicateReport, setDuplicateReport] = useState<WASHReport | null>(null);
+
   const handleWASHSubmit = async () => {
+    // Check for duplicates
+    const existingReport = data.reports.find(r =>
+      r.zone === formData.zone &&
+      r.facilityId === formData.facilityId &&
+      r.type === reportType &&
+      r.status !== 'Resolved'
+    );
+
+    if (existingReport) {
+      setDuplicateReport(existingReport);
+      return;
+    }
+
     const newReport: WASHReport = {
       id: Math.random().toString(36).substr(2, 9),
       type: reportType,
@@ -74,10 +111,17 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
       timestamp: new Date().toISOString(),
       synced: isOnline,
       status: 'Pending',
-      details: { ...formData }
+      details: { ...formData },
+      nudges: []
     };
 
     await addReport(newReport);
+    resetForm();
+    alert('Report Submitted Successfully');
+    setView('history');
+  };
+
+  const resetForm = () => {
     setStep(1);
     setFormData({
       zone: 'Zone A',
@@ -92,8 +136,30 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
       targetGroups: [],
       lighting: ''
     });
-    alert('Report Submitted Successfully');
-    setView('history');
+    setDuplicateReport(null);
+  };
+
+  const handleNudge = async (reportId: string) => {
+    const report = data.reports.find(r => r.id === reportId);
+    if (!report) return;
+
+    // Check if already nudged today
+    const hasNudgedToday = report.nudges?.some(n =>
+      n.userId === user.id &&
+      new Date(n.timestamp).toDateString() === new Date().toDateString()
+    );
+
+    if (hasNudgedToday) {
+      alert("You have already nudged this report today.");
+      return;
+    }
+
+    await nudgeReport(reportId, user.id);
+    alert("Report nudged! Priority raised.");
+    if (duplicateReport) {
+      resetForm();
+      setView('history');
+    }
   };
 
   const toggleListValue = (key: string, value: string) => {
@@ -144,15 +210,56 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
     );
   };
 
+  /* Check for Daily Log */
+  const hasLoggedToday = data.logs.some(log => log.authorName === (user.name || user.id) && new Date(log.timestamp).toDateString() === new Date().toDateString());
+
   return (
     <div className="w-full max-w-4xl mx-auto space-y-6">
+      {/* Duplicate Report Modal - Global Overlay */}
+      {duplicateReport && (
+        <div className="fixed inset-0 bg-slate-900/90 z-50 flex items-center justify-center p-6 backdrop-blur-sm">
+          <div className="bg-white rounded-3xl p-8 max-w-sm w-full shadow-2xl animate-in zoom-in duration-300">
+            <div className="text-center">
+              <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg className="w-8 h-8 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+              </div>
+              <h3 className="text-xl font-black text-slate-800 uppercase mb-2">Duplicate Report</h3>
+              <p className="text-sm text-slate-500 mb-6 font-medium">
+                An active report for <span className="text-slate-800 font-bold">{duplicateReport.facilityId}</span> in <span className="text-slate-800 font-bold">{duplicateReport.zone}</span> already exists.
+              </p>
+              <div className="space-y-3">
+                <button
+                  onClick={() => handleNudge(duplicateReport.id)}
+                  className="w-full bg-amber-500 hover:bg-amber-600 text-white font-black uppercase py-4 rounded-xl shadow-lg shadow-amber-200 transition-all flex items-center justify-center space-x-2"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
+                  <span>Nudge Priority</span>
+                </button>
+                <button
+                  onClick={() => setDuplicateReport(null)}
+                  className="w-full bg-slate-100 hover:bg-slate-200 text-slate-600 font-black uppercase py-4 rounded-xl transition-all"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-black text-slate-800 uppercase tracking-tighter">Field Dashboard</h1>
           <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Active Sector: Sector-4G / {user.id}</p>
         </div>
-        <div className="flex bg-slate-200 p-1 rounded-xl">
+        <div className="flex bg-slate-200 p-1 rounded-xl relative group">
+          {!hasLoggedToday && (
+            <div className="absolute -top-10 right-0 bg-slate-900 text-white text-[10px] uppercase font-black px-3 py-2 rounded-lg shadow-xl animate-bounce">
+              Daily Check-in Required
+              <div className="absolute bottom-[-4px] right-8 w-2 h-2 bg-slate-900 rotate-45"></div>
+            </div>
+          )}
           <button
             onClick={() => setView('activity')}
             className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all ${view === 'activity' ? 'bg-white shadow-sm text-emerald-600' : 'text-slate-500'}`}
@@ -160,14 +267,16 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
             Daily Log
           </button>
           <button
+            disabled={!hasLoggedToday}
             onClick={() => setView('wash')}
-            className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all ${view === 'wash' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500'}`}
+            className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all ${!hasLoggedToday ? 'opacity-50 cursor-not-allowed' : ''} ${view === 'wash' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500'}`}
           >
             WASH Report
           </button>
           <button
+            disabled={!hasLoggedToday}
             onClick={() => setView('history')}
-            className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all ${view === 'history' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-500'}`}
+            className={`px-4 py-2 rounded-lg text-[10px] font-black uppercase transition-all ${!hasLoggedToday ? 'opacity-50 cursor-not-allowed' : ''} ${view === 'history' ? 'bg-white shadow-sm text-indigo-600' : 'text-slate-500'}`}
           >
             Status Feed
           </button>
@@ -178,28 +287,38 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
         <div className="space-y-6">
           <div className="bg-slate-800 p-6 rounded-3xl shadow-xl text-white">
             <h3 className="text-slate-400 text-[10px] font-black uppercase mb-4 tracking-widest">Post Field Update</h3>
-            <form onSubmit={handleLogActivity} className="flex flex-col sm:flex-row gap-4">
-              <input
-                type="text"
-                placeholder="What did you achieve today?"
-                value={activity}
-                onChange={(e) => setActivity(e.target.value)}
-                className="flex-grow bg-slate-700/50 border-none rounded-2xl px-5 py-4 text-sm focus:ring-2 focus:ring-emerald-500 outline-none placeholder:text-slate-500 text-white"
-              />
-              <div className="flex gap-4">
-                <input
-                  type="number"
-                  min="0.5"
-                  step="0.5"
-                  value={hours}
-                  onChange={(e) => setHours(e.target.value)}
-                  className="w-20 bg-slate-700/50 border-none rounded-2xl px-5 py-4 text-sm focus:ring-2 focus:ring-emerald-500 outline-none text-center text-white font-bold"
-                />
-                <button type="submit" className="bg-emerald-500 hover:bg-emerald-600 px-8 py-4 rounded-2xl font-black text-xs uppercase tracking-widest transition-all shadow-lg shadow-emerald-900/20">
-                  Log
-                </button>
+            {data.logs.some(log => log.authorName === (user.name || user.id) && new Date(log.timestamp).toDateString() === new Date().toDateString()) ? (
+              <div className="bg-emerald-500/20 border border-emerald-500/50 p-6 rounded-2xl flex flex-col items-center justify-center text-center space-y-2">
+                <div className="w-10 h-10 rounded-full bg-emerald-500 flex items-center justify-center mb-2">
+                  <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M5 13l4 4L19 7" /></svg>
+                </div>
+                <h4 className="font-bold text-emerald-400 uppercase tracking-wider text-sm">Update Logged</h4>
+                <p className="text-xs text-emerald-200">You have already submitted your daily log for today.</p>
               </div>
-            </form>
+            ) : (
+              <form onSubmit={handleLogActivity} className="flex flex-col sm:flex-row gap-4">
+                <input
+                  type="text"
+                  placeholder="What did you achieve today?"
+                  value={activity}
+                  onChange={(e) => setActivity(e.target.value)}
+                  className="flex-grow bg-slate-700/50 border-none rounded-2xl px-5 py-4 text-sm focus:ring-2 focus:ring-emerald-500 outline-none placeholder:text-slate-500 text-white"
+                />
+                <div className="flex gap-4">
+                  <input
+                    type="number"
+                    min="0.5"
+                    step="0.5"
+                    value={hours}
+                    onChange={(e) => setHours(e.target.value)}
+                    className="w-20 bg-slate-700/50 border-none rounded-2xl px-5 py-4 text-sm focus:ring-2 focus:ring-emerald-500 outline-none text-center text-white font-bold"
+                  />
+                  <button type="submit" className="bg-emerald-500 hover:bg-emerald-600 px-8 py-4 rounded-2xl font-black text-xs uppercase tracking-widest transition-all shadow-lg shadow-emerald-900/20">
+                    Log
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
 
           <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
@@ -250,7 +369,20 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
                 </div>
               ) : (
                 data.reports.map((report) => (
-                  <div key={report.id} className="p-6 hover:bg-slate-50 transition-all group">
+                  <div key={report.id} className="p-6 hover:bg-slate-50 transition-all group relative">
+                    {/* Nudge Button in Feed */}
+                    <div className="absolute top-6 right-6 flex items-center space-x-2">
+                      <button
+                        onClick={() => handleNudge(report.id)}
+                        disabled={report.nudges?.some(n => n.userId === user.id && new Date(n.timestamp).toDateString() === new Date().toDateString())}
+                        className="flex items-center space-x-1 px-3 py-1.5 bg-slate-100 hover:bg-amber-100 text-slate-400 hover:text-amber-600 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        title="Nudge to increase priority"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
+                        <span className="text-[10px] font-black uppercase">{report.nudges?.length || 0}</span>
+                      </button>
+                    </div>
+
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                       <div className="space-y-1">
                         <div className="flex items-center space-x-2">
@@ -263,7 +395,7 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
                         </div>
                         <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">Submitted: {new Date(report.timestamp).toLocaleString()}</p>
                       </div>
-                      <div className="flex items-center space-x-3">
+                      <div className="flex items-center space-x-3 pr-16">
                         <StatusBadge status={report.status} />
                         <div className={`w-1.5 h-1.5 rounded-full ${report.synced ? 'bg-emerald-500' : 'bg-amber-500'}`} title={report.synced ? 'Synced' : 'Waiting to Sync'}></div>
                       </div>
@@ -276,6 +408,25 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
         </div>
       ) : (
         <div className="bg-white rounded-[2.5rem] shadow-2xl border border-slate-100 overflow-hidden flex flex-col min-h-[600px]">
+          {/* Nudge Notification */}
+          {nudgeMessage && !hasLoggedToday && (
+            <div className="bg-amber-50 border-l-4 border-amber-500 p-4 mb-4 mx-4 rounded-r shadow-md animate-bounce">
+              <div className="flex">
+                <div className="flex-shrink-0">
+                  <svg className="h-5 w-5 text-amber-500" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                  </svg>
+                </div>
+                <div className="ml-3">
+                  <p className="text-sm text-amber-700 font-bold">
+                    {nudgeMessage}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Daily Log Requirement Banner */}
           {/* Form Header */}
           <div className="bg-blue-600 p-8 text-white">
             <div className="flex justify-between items-center mb-4">
@@ -302,14 +453,16 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
               <div className="space-y-6">
                 <label className="block text-[10px] font-black uppercase text-slate-400 tracking-[0.2em]">Deployment Zone</label>
                 <div className="grid grid-cols-1 gap-3">
-                  {ZONES.map(z => (
-                    <OptionButton
-                      key={z}
-                      label={z}
-                      isSelected={formData.zone === z}
-                      onClick={() => { setFormData({ ...formData, zone: z }); setStep(2); }}
-                    />
-                  ))}
+                  <div className="grid grid-cols-1 gap-3">
+                    {data.zones?.map(z => (
+                      <OptionButton
+                        key={z.id}
+                        label={z.name}
+                        isSelected={formData.zone === z.name}
+                        onClick={() => { setFormData({ ...formData, zone: z.name }); setStep(2); }}
+                      />
+                    ))}
+                  </div>
                 </div>
               </div>
             )}

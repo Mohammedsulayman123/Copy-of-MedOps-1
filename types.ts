@@ -11,6 +11,8 @@ export interface User {
   name?: string;
   organization?: string;
   lastSync?: string;
+  docId?: string; // Firestore Document ID (needed for deletion if different from id)
+  nudges?: { sender: string; timestamp: string; message: string; }[];
 }
 
 export interface FieldLog {
@@ -56,10 +58,19 @@ export interface WASHReport {
     targetGroups?: string[];
     isFunctional?: string; // Yes, No
   };
+  nudges?: { userId: string; timestamp: string; }[];
+}
+
+export interface Zone {
+  id: string; // e.g. "Zone A"
+  name: string;
+  coordinates: { lat: number; lng: number }[]; // LatLng object array
 }
 
 export interface AppData {
   logs: FieldLog[];
   projects: Project[];
   reports: WASHReport[];
+  zones: Zone[];
+  volunteers: User[];
 }

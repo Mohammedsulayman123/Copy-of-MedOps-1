@@ -9,9 +9,10 @@ import {
     setDoc,
     getDoc,
     orderBy,
-    Timestamp
+    Timestamp,
+    deleteDoc
 } from 'firebase/firestore';
-import { User, FieldLog, WASHReport, Project, AppData } from '../types';
+import { User, FieldLog, WASHReport, Project, AppData, Zone } from '../types';
 
 // USERS
 export const getUserProfile = async (uid: string): Promise<User | null> => {
@@ -83,6 +84,31 @@ export const addReport = async (report: WASHReport) => {
     }
 };
 
+export const nudgeReport = async (reportId: string, userId: string) => {
+    try {
+        const reportRef = doc(db, 'reports', reportId);
+        const reportSnap = await getDoc(reportRef);
+
+        if (reportSnap.exists()) {
+            const reportData = reportSnap.data() as WASHReport;
+            const currentNudges = reportData.nudges || [];
+
+            // Add new nudge
+            const newNudge = {
+                userId,
+                timestamp: new Date().toISOString()
+            };
+
+            await setDoc(reportRef, {
+                nudges: [...currentNudges, newNudge]
+            }, { merge: true });
+        }
+    } catch (error) {
+        console.error("Error nudging report:", error);
+        throw error;
+    }
+};
+
 // PROJECTS
 export const subscribeToProjects = (callback: (projects: Project[]) => void) => {
     const q = query(collection(db, 'projects'));
@@ -90,4 +116,75 @@ export const subscribeToProjects = (callback: (projects: Project[]) => void) => 
         const projects = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Project));
         callback(projects);
     });
+};
+
+// ZONES
+export const subscribeToZones = (callback: (zones: Zone[]) => void) => {
+    const q = query(collection(db, 'zones'), orderBy('name'));
+    return onSnapshot(q, (snapshot) => {
+        const zones = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Zone));
+        callback(zones);
+    });
+};
+
+export const addZone = async (zone: Zone) => {
+    try {
+        const { id, ...data } = zone;
+        await setDoc(doc(db, 'zones', id), data);
+    } catch (error) {
+        console.error("Error adding zone:", error);
+        throw error;
+    }
+};
+
+export const deleteZone = async (zoneId: string) => {
+    try {
+        await deleteDoc(doc(db, 'zones', zoneId));
+    } catch (error) {
+        console.error("Error deleting zone:", error);
+        throw error;
+    }
+};
+
+// VOLUNTEERS
+export const subscribeToVolunteers = (callback: (volunteers: User[]) => void) => {
+    const q = query(collection(db, 'users'), where('role', '==', 'VOLUNTEER'));
+    return onSnapshot(q, (snapshot) => {
+        const volunteers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), docId: doc.id } as User));
+        callback(volunteers);
+    });
+};
+
+export const deleteUser = async (uid: string) => {
+    try {
+        await deleteDoc(doc(db, 'users', uid));
+    } catch (error) {
+        console.error("Error deleting user:", error);
+        throw error;
+    }
+};
+
+export const nudgeVolunteer = async (volunteerId: string, senderName: string) => {
+    try {
+        const userRef = doc(db, 'users', volunteerId);
+        const userSnap = await getDoc(userRef);
+
+        if (userSnap.exists()) {
+            const userData = userSnap.data() as User;
+            const currentNudges = userData.nudges || [];
+
+            const newNudge = {
+                sender: senderName,
+                timestamp: new Date().toISOString(),
+                message: "Please submit your activity log for today"
+            };
+
+            await setDoc(userRef, {
+                nudges: [...currentNudges, newNudge]
+            }, { merge: true });
+        }
+    } catch (error) {
+        console.error("Error nudging volunteer:", error);
+        throw error;
+    }
 };

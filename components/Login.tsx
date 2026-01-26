@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { UserRole, User } from '../types';
 import { auth } from '../services/firebase';
-import { signInAnonymously, signInWithEmailAndPassword } from 'firebase/auth';
+import { signInAnonymously, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 import { createUserProfile, getUserProfile } from '../services/db';
 
 interface LoginProps {
@@ -30,20 +30,20 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
     if (volId.toUpperCase().startsWith('VOL-')) {
       try {
         const result = await signInAnonymously(auth);
-        const uid = result.user.uid;
+        // Use VOL-ID as the consistent key (instead of random Auth UID)
+        // This allows HQ to pre-create/manage volunteers by ID.
+        const docId = volId.toUpperCase();
 
-        // Optimistic Login: Create/Merge profile blindly without checking first
-        // This is much faster and works offline immediately
-        const profile: User = {
-          id: volId.toUpperCase(),
-          role: UserRole.VOLUNTEER,
-          name: 'Volunteer ' + volId.split('-')[1],
-          lastSync: new Date().toISOString()
-        };
+        let profile = await getUserProfile(docId);
 
-        // Fire and forget (or await if we want to ensure write persistence first)
-        // With offline mode, this returns almost instantly
-        await createUserProfile(uid, profile);
+        if (profile) {
+          // Existing profile (pre-created by HQ or returning user)
+          // Update sync time
+          await createUserProfile(docId, { ...profile, lastSync: new Date().toISOString() });
+        } else {
+          // STRICT MODE: If profile doesn't exist, deny access.
+          throw new Error("Access Denied. Your ID is not registered. Please contact HQ.");
+        }
 
         // Explicitly update App state to avoid race conditions with onAuthStateChanged
         onLogin(profile);
@@ -67,7 +67,15 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
       try {
         // Assume ID is the email prefix for simplicity
         const email = ngoId.includes('@') ? ngoId : `${ngoId.toLowerCase()}@medops.app`;
-        const result = await signInWithEmailAndPassword(auth, email, ngoPassword);
+
+        let userCredential;
+        try {
+          userCredential = await signInWithEmailAndPassword(auth, email, ngoPassword);
+        } catch (authErr: any) {
+          // If user not found, try to create (Auto-Registration for Prototype)
+          console.log("User not found, attempting to register:", authErr.code);
+          userCredential = await createUserWithEmailAndPassword(auth, email, ngoPassword);
+        }
 
         // Optimistic Profile Creation for NGO
         const ngoProfile: User = {
@@ -78,12 +86,13 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
         };
 
         // Create/Ensure profile exists in DB
-        await createUserProfile(result.user.uid, ngoProfile);
+        await createUserProfile(userCredential.user.uid, ngoProfile);
 
         // Immediate State Update
         onLogin(ngoProfile);
       } catch (err: any) {
-        setError('Authentication failed. Check credentials.');
+        console.error("NGO Auth Error:", err);
+        setError('Authentication failed: ' + err.message);
         setLoading(false);
       }
     } else {
@@ -96,7 +105,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
     <div className="w-full max-w-md bg-white rounded-2xl shadow-xl overflow-hidden border border-slate-100 transition-all">
       {/* Header */}
       <div className="bg-emerald-600 p-8 text-white text-center">
-        <h1 className="text-2xl font-bold">HumanityLink</h1>
+        <h1 className="text-2xl font-bold">WASH Link</h1>
         <p className="text-emerald-100 mt-2">Connecting compassion with action</p>
       </div>
 
