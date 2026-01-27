@@ -5,6 +5,7 @@ import { db } from '../services/firebase';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { OfflineAI } from '../services/OfflineAI';
 import { addLog, addReport, nudgeReport } from '../services/db';
+import { calculateRiskScore, calculateWaterPointRisk } from '../utils/risk';
 
 
 interface VolunteerDashboardProps {
@@ -50,15 +51,20 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
   const [formData, setFormData] = useState<any>({
     zone: 'Zone A',
     facilityId: '',
-    usable: '',
-    available: '',
+    usable: '', // Toilet: Facility working?
+    water: '', // Toilet: Water available?
+    soap: null, // Toilet: Soap available? (boolean)
+    lighting: null, // Toilet: Lighting works? (boolean)
+    lock: null, // Toilet: Lock works? (boolean)
+    usersPerDay: '', // Toilet: Users per day?
+    users: [], // Toilet: Primary users?
+    available: '', // Water Point
     isFunctional: '',
     quality: '',
     usagePressure: '',
     waitingTime: '',
     problems: [],
     targetGroups: [],
-    lighting: '',
     notes: '',
     urgency: 'Normal'
   });
@@ -108,6 +114,23 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
       return;
     }
 
+    const riskAnalysis = reportType === ReportType.TOILET ? calculateRiskScore({
+      usability: formData.usable?.toLowerCase(),
+      water: formData.water?.toLowerCase(),
+      soap: formData.soap === true,
+      lighting: formData.lighting === true,
+      lock: formData.lock === true,
+      usersPerDay: formData.usersPerDay,
+      users: formData.users
+    }) : calculateWaterPointRisk({
+      functional: formData.isFunctional?.toLowerCase().replace('working: ', ''), // Handle "Working: Yes/No" format if present
+      availability: formData.available?.toLowerCase(),
+      quality: formData.quality?.toLowerCase(),
+      waitingTime: formData.waitingTime,
+      usersPerDay: formData.usersPerDay,
+      users: formData.users
+    });
+
     const newReport: WASHReport = {
       id: Math.random().toString(36).substr(2, 9),
       type: reportType,
@@ -115,8 +138,13 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
       facilityId: formData.facilityId,
       timestamp: new Date().toISOString(),
       synced: isOnline,
-      status: 'Pending',
-      details: { ...formData },
+      status: riskAnalysis ? riskAnalysis.priority === 'CRITICAL' ? 'In Progress' : 'Pending' : 'Pending',
+      details: {
+        ...formData,
+        riskScore: riskAnalysis?.score,
+        riskPriority: riskAnalysis?.priority,
+        riskReasoning: riskAnalysis?.reasoning
+      },
       nudges: []
     };
 
@@ -132,6 +160,12 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
       zone: 'Zone A',
       facilityId: '',
       usable: '',
+      water: '',
+      soap: null,
+      lighting: null,
+      lock: null,
+      usersPerDay: '',
+      users: [],
       available: '',
       isFunctional: '',
       quality: '',
@@ -139,7 +173,8 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
       waitingTime: '',
       problems: [],
       targetGroups: [],
-      lighting: ''
+      notes: '',
+      urgency: 'Normal'
     });
     setDuplicateReport(null);
   };
@@ -441,7 +476,7 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
           {/* Form Header */}
           <div className="bg-blue-600 p-8 text-white">
             <div className="flex justify-between items-center mb-4">
-              <span className="text-[10px] font-black uppercase tracking-[0.2em] opacity-80">Phase {step} of {reportType === ReportType.TOILET ? 7 : 8}</span>
+              <span className="text-[10px] font-black uppercase tracking-[0.2em] opacity-80">Phase {step} of {reportType === ReportType.TOILET ? 9 : 8}</span>
               <div className="flex gap-2">
                 <button
                   onClick={() => { setReportType(ReportType.TOILET); setStep(1); }}
@@ -494,181 +529,272 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
               </div>
             )}
 
-            {step === 3 && (
-              <div className="space-y-6">
-                <label className="block text-[10px] font-black uppercase text-slate-400 tracking-[0.2em]">
-                  {reportType === ReportType.TOILET ? 'Current Usability' : 'Water Availability'}
-                </label>
-                <div className="space-y-3">
-                  {['Yes', reportType === ReportType.TOILET ? 'Partially' : 'Limited', 'No'].map(opt => (
-                    <OptionButton
-                      key={opt}
-                      label={opt}
-                      isSelected={(reportType === ReportType.TOILET ? formData.usable : formData.available) === opt}
-                      onClick={() => { setFormData({ ...formData, [reportType === ReportType.TOILET ? 'usable' : 'available']: opt }); setStep(4); }}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {step === 4 && (
-              <div className="space-y-6">
-                <label className="block text-[10px] font-black uppercase text-slate-400 tracking-[0.2em]">
-                  {reportType === ReportType.TOILET ? 'Infrastructure Issues' : 'Mechanical Integrity'}
-                </label>
-                {reportType === ReportType.TOILET ? (
-                  <div className="grid grid-cols-1 gap-2">
-                    {['Broken door / no lock', 'Overflowing / clogged', 'Strong smell', 'Unsafe at night', 'No water nearby', 'Not accessible'].map(issue => (
-                      <button
-                        key={issue}
-                        onClick={() => toggleListValue('problems', issue)}
-                        className={`p-4 rounded-xl border-2 text-left text-[11px] font-black uppercase tracking-tight transition-all flex items-center justify-between ${formData.problems.includes(issue)
-                          ? 'bg-blue-600 text-white border-blue-600 shadow-lg'
-                          : 'bg-white border-slate-100 text-slate-800 hover:border-slate-300'
-                          }`}
-                      >
-                        {issue}
-                        {formData.problems.includes(issue) && (
-                          <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
-                        )}
-                      </button>
-                    ))}
-                    <button onClick={() => setStep(5)} className="mt-4 bg-slate-900 text-white py-5 rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl shadow-slate-200">Continue Observation</button>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {['Yes', 'No'].map(opt => (
-                      <OptionButton
-                        key={opt}
-                        label={`Working: ${opt}`}
-                        isSelected={formData.isFunctional === opt}
-                        onClick={() => { setFormData({ ...formData, isFunctional: opt }); setStep(5); }}
-                      />
-                    ))}
-                  </div>
-                )}
-
-
-                <div className="mt-6">
-                  <label className="block text-[10px] font-black uppercase text-slate-400 tracking-[0.2em] mb-2">Field Notes & Urgency</label>
-                  <textarea
-                    value={formData.notes}
-                    onChange={handleNotesChange}
-                    placeholder="Describe any critical issues (e.g., 'Cholera suspected', 'Severe leak')..."
-                    className="w-full bg-slate-50 border-2 border-slate-100 rounded-xl p-4 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all"
-                    rows={3}
-                  />
-                  {formData.urgency !== 'Normal' && (
-                    <div className={`mt-2 p-3 rounded-lg flex items-center space-x-2 ${formData.urgency === 'Critical' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-                      <span className="text-[10px] font-black uppercase tracking-widest">AI Flag: {formData.urgency} Priority</span>
+            {/* TOILET REPORT FLOW */}
+            {reportType === ReportType.TOILET && (
+              <>
+                {step === 3 && (
+                  <div className="space-y-6">
+                    <label className="block text-[10px] font-black uppercase text-slate-400 tracking-[0.2em]">1. Facility Working?</label>
+                    <div className="space-y-3">
+                      {['Yes', 'Limited', 'No'].map(opt => (
+                        <OptionButton
+                          key={opt}
+                          label={opt}
+                          isSelected={formData.usable === opt}
+                          onClick={() => { setFormData({ ...formData, usable: opt }); setStep(4); }}
+                        />
+                      ))}
                     </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {step === 5 && (
-              <div className="space-y-6">
-                <label className="block text-[10px] font-black uppercase text-slate-400 tracking-[0.2em]">
-                  {reportType === ReportType.TOILET ? 'Lighting at Night' : 'Visual Purity Check'}
-                </label>
-                <div className="space-y-3">
-                  {(reportType === ReportType.TOILET ? ['Yes', 'No'] : ['Clear', 'Dirty', 'Smelly']).map(opt => (
-                    <OptionButton
-                      key={opt}
-                      label={opt}
-                      isSelected={(reportType === ReportType.TOILET ? formData.lighting : formData.quality) === opt}
-                      onClick={() => { setFormData({ ...formData, [reportType === ReportType.TOILET ? 'lighting' : 'quality']: opt }); setStep(6); }}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {step === 6 && (
-              <div className="space-y-6">
-                <label className="block text-[10px] font-black uppercase text-slate-400 tracking-[0.2em]">
-                  {reportType === ReportType.TOILET ? 'Population Load' : 'Congestion / Waiting'}
-                </label>
-                <div className="space-y-3">
-                  {(reportType === ReportType.TOILET
-                    ? ['<25', '25-50', '50-100', '100+']
-                    : ['<5 minutes', '5-15 minutes', '>15 minutes']
-                  ).map(opt => (
-                    <OptionButton
-                      key={opt}
-                      label={opt}
-                      isSelected={(reportType === ReportType.TOILET ? formData.usagePressure : formData.waitingTime) === opt}
-                      onClick={() => { setFormData({ ...formData, [reportType === ReportType.TOILET ? 'usagePressure' : 'waitingTime']: opt }); setStep(7); }}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {step === 7 && (
-              <div className="space-y-6">
-                <label className="block text-[10px] font-black uppercase text-slate-400 tracking-[0.2em]">
-                  {reportType === ReportType.TOILET ? 'Demographics Identified' : 'Load Estimate'}
-                </label>
-                {reportType === ReportType.TOILET ? (
-                  <div className="grid grid-cols-1 gap-2">
-                    {['Women & girls', 'Children', 'Men', 'Elderly / disabled'].map(group => (
-                      <button
-                        key={group}
-                        onClick={() => toggleListValue('targetGroups', group)}
-                        className={`p-4 rounded-xl border-2 text-left text-[11px] font-black uppercase tracking-tight transition-all flex items-center justify-between ${formData.targetGroups.includes(group)
-                          ? 'bg-blue-600 text-white border-blue-600 shadow-lg'
-                          : 'bg-white border-slate-100 text-slate-800 hover:border-slate-300'
-                          }`}
-                      >
-                        {group}
-                        {formData.targetGroups.includes(group) && (
-                          <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
-                        )}
-                      </button>
-                    ))}
-                    <button onClick={handleWASHSubmit} className="mt-6 bg-emerald-600 text-white py-5 rounded-2xl font-black text-xs uppercase tracking-[0.2em] shadow-xl shadow-emerald-100 transition-all hover:bg-emerald-700">Finalize Report</button>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {['<25', '25-50', '50-100', '100+'].map(opt => (
-                      <OptionButton
-                        key={opt}
-                        label={opt}
-                        isSelected={formData.usagePressure === opt}
-                        onClick={() => { setFormData({ ...formData, usagePressure: opt }); setStep(8); }}
-                      />
-                    ))}
                   </div>
                 )}
-              </div>
+
+                {step === 4 && (
+                  <div className="space-y-6">
+                    <label className="block text-[10px] font-black uppercase text-slate-400 tracking-[0.2em]">2. Water Available?</label>
+                    <div className="space-y-3">
+                      {['Yes', 'Limited', 'None'].map(opt => (
+                        <OptionButton
+                          key={opt}
+                          label={opt}
+                          isSelected={formData.water === opt}
+                          onClick={() => { setFormData({ ...formData, water: opt }); setStep(5); }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {step === 5 && (
+                  <div className="space-y-6">
+                    <label className="block text-[10px] font-black uppercase text-slate-400 tracking-[0.2em]">3. Soap Available?</label>
+                    <div className="space-y-3">
+                      {['Yes', 'No'].map(opt => (
+                        <OptionButton
+                          key={opt}
+                          label={opt}
+                          isSelected={formData.soap === (opt === 'Yes')}
+                          onClick={() => { setFormData({ ...formData, soap: opt === 'Yes' }); setStep(6); }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {step === 6 && (
+                  <div className="space-y-6">
+                    <label className="block text-[10px] font-black uppercase text-slate-400 tracking-[0.2em]">4. Lighting Works?</label>
+                    <div className="space-y-3">
+                      {['Yes', 'No'].map(opt => (
+                        <OptionButton
+                          key={opt}
+                          label={opt}
+                          isSelected={formData.lighting === (opt === 'Yes')}
+                          onClick={() => { setFormData({ ...formData, lighting: opt === 'Yes' }); setStep(7); }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {step === 7 && (
+                  <div className="space-y-6">
+                    <label className="block text-[10px] font-black uppercase text-slate-400 tracking-[0.2em]">5. Lock Works?</label>
+                    <div className="space-y-3">
+                      {['Yes', 'No'].map(opt => (
+                        <OptionButton
+                          key={opt}
+                          label={opt}
+                          isSelected={formData.lock === (opt === 'Yes')}
+                          onClick={() => { setFormData({ ...formData, lock: opt === 'Yes' }); setStep(8); }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {step === 8 && (
+                  <div className="space-y-6">
+                    <label className="block text-[10px] font-black uppercase text-slate-400 tracking-[0.2em]">6. Users Per Day?</label>
+                    <div className="space-y-3">
+                      {['<25', '25-50', '50-100', '100+'].map(opt => (
+                        <OptionButton
+                          key={opt}
+                          label={opt}
+                          isSelected={formData.usersPerDay === opt}
+                          onClick={() => { setFormData({ ...formData, usersPerDay: opt }); setStep(9); }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {step === 9 && (
+                  <div className="space-y-6">
+                    <label className="block text-[10px] font-black uppercase text-slate-400 tracking-[0.2em]">7. Primary Users?</label>
+                    <div className="grid grid-cols-1 gap-2">
+                      {['Women', 'Children', 'Men', 'Elderly', 'Disabled'].map(group => (
+                        <button
+                          key={group}
+                          onClick={() => toggleListValue('users', group)}
+                          className={`p-4 rounded-xl border-2 text-left text-[11px] font-black uppercase tracking-tight transition-all flex items-center justify-between ${formData.users.includes(group)
+                            ? 'bg-blue-600 text-white border-blue-600 shadow-lg'
+                            : 'bg-white border-slate-100 text-slate-800 hover:border-slate-300'
+                            }`}
+                        >
+                          {group}
+                          {formData.users.includes(group) && (
+                            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
+                          )}
+                        </button>
+                      ))}
+
+                      <div className="mt-6">
+                        <label className="block text-[10px] font-black uppercase text-slate-400 tracking-[0.2em] mb-2">Field Notes</label>
+                        <textarea
+                          value={formData.notes}
+                          onChange={handleNotesChange}
+                          placeholder="Any additional observations..."
+                          className="w-full bg-slate-50 border-2 border-slate-100 rounded-xl p-4 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                          rows={3}
+                        />
+                      </div>
+
+                      <button onClick={handleWASHSubmit} className="mt-6 bg-emerald-600 text-white py-5 rounded-2xl font-black text-xs uppercase tracking-[0.2em] shadow-xl shadow-emerald-100 transition-all hover:bg-emerald-700">Calculate Risk & Submit</button>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
 
-            {step === 8 && reportType === ReportType.WATER_POINT && (
-              <div className="space-y-6">
-                <label className="block text-[10px] font-black uppercase text-slate-400 tracking-[0.2em]">Primary Users</label>
-                <div className="grid grid-cols-1 gap-2">
-                  {['Women & girls', 'Children', 'Men', 'Elderly / disabled'].map(group => (
-                    <button
-                      key={group}
-                      onClick={() => toggleListValue('targetGroups', group)}
-                      className={`p-4 rounded-xl border-2 text-left text-[11px] font-black uppercase tracking-tight transition-all flex items-center justify-between ${formData.targetGroups.includes(group)
-                        ? 'bg-blue-600 text-white border-blue-600 shadow-lg'
-                        : 'bg-white border-slate-100 text-slate-800 hover:border-slate-300'
-                        }`}
-                    >
-                      {group}
-                      {formData.targetGroups.includes(group) && (
-                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
-                      )}
-                    </button>
-                  ))}
-                  <button onClick={handleWASHSubmit} className="mt-6 bg-emerald-600 text-white py-5 rounded-2xl font-black text-xs uppercase tracking-[0.2em] shadow-xl shadow-emerald-100 transition-all hover:bg-emerald-700">Finalize Report</button>
-                </div>
-              </div>
+            {/* WATER POINT REPORT FLOW */}
+            {reportType === ReportType.WATER_POINT && (
+              <>
+                {step === 3 && (
+                  <div className="space-y-6">
+                    <label className="block text-[10px] font-black uppercase text-slate-400 tracking-[0.2em]">
+                      1. Water Availability?
+                    </label>
+                    <div className="space-y-3">
+                      {['Yes', 'Limited', 'None'].map(opt => (
+                        <OptionButton
+                          key={opt}
+                          label={opt}
+                          isSelected={formData.available === opt}
+                          onClick={() => { setFormData({ ...formData, available: opt }); setStep(4); }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {step === 4 && (
+                  <div className="space-y-6">
+                    <label className="block text-[10px] font-black uppercase text-slate-400 tracking-[0.2em]">
+                      2. Water Quality?
+                    </label>
+                    <div className="space-y-3">
+                      {['Clear', 'Dirty', 'Smelly'].map(opt => (
+                        <OptionButton
+                          key={opt}
+                          label={opt}
+                          isSelected={formData.quality === opt}
+                          onClick={() => { setFormData({ ...formData, quality: opt }); setStep(5); }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {step === 5 && (
+                  <div className="space-y-6">
+                    <label className="block text-[10px] font-black uppercase text-slate-400 tracking-[0.2em]">
+                      3. Functional?
+                    </label>
+                    <div className="space-y-3">
+                      {['Yes', 'No'].map(opt => (
+                        <OptionButton
+                          key={opt}
+                          label={opt}
+                          isSelected={formData.isFunctional === opt}
+                          onClick={() => { setFormData({ ...formData, isFunctional: opt }); setStep(6); }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {step === 6 && (
+                  <div className="space-y-6">
+                    <label className="block text-[10px] font-black uppercase text-slate-400 tracking-[0.2em]">
+                      4. Waiting Time?
+                    </label>
+                    <div className="space-y-3">
+                      {['<5 min', '5–15 min', '15+ min'].map(opt => (
+                        <OptionButton
+                          key={opt}
+                          label={opt}
+                          isSelected={formData.waitingTime === opt}
+                          onClick={() => { setFormData({ ...formData, waitingTime: opt }); setStep(7); }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {step === 7 && (
+                  <div className="space-y-6">
+                    <label className="block text-[10px] font-black uppercase text-slate-400 tracking-[0.2em]">
+                      5. Users Per Day?
+                    </label>
+                    <div className="space-y-3">
+                      {['<25', '25-50', '50-100', '100+'].map(opt => (
+                        <OptionButton
+                          key={opt}
+                          label={opt}
+                          isSelected={formData.usersPerDay === opt}
+                          onClick={() => { setFormData({ ...formData, usersPerDay: opt }); setStep(8); }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {step === 8 && (
+                  <div className="space-y-6">
+                    <label className="block text-[10px] font-black uppercase text-slate-400 tracking-[0.2em]">6. Primary Users?</label>
+                    <div className="grid grid-cols-1 gap-2">
+                      {['Women', 'Children', 'Elderly', 'Disabled', 'Men'].map(group => (
+                        <button
+                          key={group}
+                          onClick={() => toggleListValue('users', group)}
+                          className={`p-4 rounded-xl border-2 text-left text-[11px] font-black uppercase tracking-tight transition-all flex items-center justify-between ${formData.users.includes(group)
+                            ? 'bg-blue-600 text-white border-blue-600 shadow-lg'
+                            : 'bg-white border-slate-100 text-slate-800 hover:border-slate-300'
+                            }`}
+                        >
+                          {group}
+                          {formData.users.includes(group) && (
+                            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>
+                          )}
+                        </button>
+                      ))}
+
+                      <div className="mt-6">
+                        <label className="block text-[10px] font-black uppercase text-slate-400 tracking-[0.2em] mb-2">Field Notes</label>
+                        <textarea
+                          value={formData.notes}
+                          onChange={handleNotesChange}
+                          placeholder="Describe any critical issues..."
+                          className="w-full bg-slate-50 border-2 border-slate-100 rounded-xl p-4 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                          rows={3}
+                        />
+                      </div>
+
+                      <button onClick={handleWASHSubmit} className="mt-6 bg-emerald-600 text-white py-5 rounded-2xl font-black text-xs uppercase tracking-[0.2em] shadow-xl shadow-emerald-100 transition-all hover:bg-emerald-700">Calculate Risk & Submit</button>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </div>
 

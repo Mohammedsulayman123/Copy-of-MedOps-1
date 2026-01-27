@@ -50,15 +50,23 @@ export interface WASHReport {
   details: {
     usable?: string; // Yes, Partially, No
     available?: string; // Yes, Limited, No
+    water?: string; // Yes, Limited, None
+    soap?: boolean;
+    lock?: boolean;
     problems?: string[];
-    lighting?: string; // Yes, No
+    lighting?: boolean | string; // Yes, No (updated to boolean for new logic, string for compat)
     quality?: string; // Clear, Dirty, Smelly
     usagePressure: string; // <25, 25-50, 50-100, 100+
+    usersPerDay?: string; // <25, 25-50, 50-100, 100+
     waitingTime?: string;
     targetGroups?: string[];
+    users?: string[];
     isFunctional?: string; // Yes, No
     notes?: string;
     urgency?: string;
+    riskScore?: number;
+    riskPriority?: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+    riskReasoning?: string[];
   };
   nudges?: { userId: string; timestamp: string; }[];
 }
