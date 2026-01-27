@@ -422,12 +422,12 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
               <span className="text-[9px] text-slate-400 font-bold uppercase">{data.logs.filter(l => new Date(l.timestamp) > new Date('2026-01-27T05:00:00')).length} entries</span>
             </div>
             <div className="divide-y divide-slate-50">
-              {data.logs.filter(l => new Date(l.timestamp) > new Date('2026-01-27T05:00:00')).length === 0 ? (
+              {data.logs.filter(l => new Date(l.timestamp) > new Date('2026-01-27T06:16:00')).length === 0 ? (
                 <div className="p-12 text-center">
                   <p className="text-xs font-black text-slate-300 uppercase tracking-widest">Activity Log Cleared</p>
                 </div>
               ) : (
-                data.logs.filter(l => new Date(l.timestamp) > new Date('2026-01-27T05:00:00')).map((log) => (
+                data.logs.filter(l => new Date(l.timestamp) > new Date('2026-01-27T06:16:00')).map((log) => (
                   <div key={log.id} className="px-6 py-4 flex items-center justify-between hover:bg-slate-50/50 transition-colors">
                     <div>
                       <h4 className="font-bold text-slate-800 text-sm">{log.activity}</h4>
@@ -455,7 +455,7 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
 
           <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-100 overflow-hidden">
             <div className="divide-y divide-slate-50">
-              {data.reports.filter(r => new Date(r.timestamp) > new Date('2026-01-27T05:00:00')).length === 0 ? (
+              {data.reports.filter(r => new Date(r.timestamp) > new Date('2026-01-27T06:16:00')).length === 0 ? (
                 <div className="p-24 text-center">
                   <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4">
                     <svg className="w-8 h-8 text-slate-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>
@@ -463,7 +463,7 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
                   <p className="text-xs font-black text-slate-300 uppercase tracking-widest">No reports filed yet</p>
                 </div>
               ) : (
-                data.reports.filter(r => new Date(r.timestamp) > new Date('2026-01-27T05:00:00')).map((report) => (
+                data.reports.filter(r => new Date(r.timestamp) > new Date('2026-01-27T06:16:00')).map((report) => (
                   <div key={report.id} className="p-6 hover:bg-slate-50 transition-all group relative">
                     {/* Nudge Button in Feed */}
                     <div className="absolute top-6 right-6 flex items-center space-x-2">

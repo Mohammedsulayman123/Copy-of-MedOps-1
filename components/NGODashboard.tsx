@@ -42,9 +42,9 @@ const NGODashboard: React.FC<NGODashboardProps> = ({ user, data, isOnline }) => 
     const zones = data.zones?.map(z => z.name) || [];
 
     return zones.map(zone => {
-      const zoneReports = data.reports.filter(r => r.zone === zone && r.status !== 'Resolved' && new Date(r.timestamp) > new Date('2026-01-27T05:00:00'));
-      let totalToiletScore = 0;
-      let totalWaterScore = 0;
+      const zoneReports = data.reports.filter(r => r.zone === zone && r.status !== 'Resolved' && new Date(r.timestamp) > new Date('2026-01-27T06:16:00'));
+      let totalScore = 0;
+      let validReportsCount = 0;
       let toiletCount = 0;
       let waterCount = 0;
       let unusableToilets = 0;
@@ -56,39 +56,31 @@ const NGODashboard: React.FC<NGODashboardProps> = ({ user, data, isOnline }) => 
         const signals = r.details;
         if (r.type === ReportType.TOILET) {
           toiletCount++;
-          let s = 0;
-          if (signals.usable === 'No') { s += 2; unusableToilets++; }
-          else if (signals.usable === 'Partially') s += 1;
-
-          if (signals.problems?.includes('Overflowing / clogged')) s += 2;
-          if (signals.problems?.includes('Unsafe at night')) s += 1;
-          if (signals.lighting === 'No') s += 1;
-          if (signals.usagePressure === '100+') { s += 2; highPressureCount++; }
-          if (signals.targetGroups?.some(g => ['Women & girls', 'Children'].includes(g))) { s += 1; vulnerableGroupsDetected = true; }
-          totalToiletScore += s;
+          if (signals.usable === 'No') { unusableToilets++; }
+          if (signals.usagePressure === '100+') { highPressureCount++; }
+          if (signals.targetGroups?.some(g => ['Women & girls', 'Children'].includes(g))) { vulnerableGroupsDetected = true; }
         } else {
           waterCount++;
-          let s = 0;
-          if (signals.available === 'No') { s += 3; nonFunctionalWater++; }
-          else if (signals.available === 'Limited') s += 1;
+          if (signals.available === 'No' || signals.isFunctional === 'No') { nonFunctionalWater++; }
+          if (signals.usagePressure === '100+') { highPressureCount++; }
+          if (signals.targetGroups?.some(g => ['Women & girls', 'Children'].includes(g))) { vulnerableGroupsDetected = true; }
+        }
 
-          if (signals.isFunctional === 'No') { s += 2; nonFunctionalWater++; }
-          if (['Dirty', 'Smelly'].includes(signals.quality || '')) s += 2;
-          if (signals.usagePressure === '100+') { s += 2; highPressureCount++; }
-          if (signals.targetGroups?.some(g => ['Women & girls', 'Children'].includes(g))) { s += 1; vulnerableGroupsDetected = true; }
-          totalWaterScore += s;
+        // Use pre-calculated risk score from the report if available
+        if (typeof r.details.riskScore === 'number') {
+          totalScore += r.details.riskScore;
+          validReportsCount++;
         }
       });
 
-      const avgToilet = toiletCount ? totalToiletScore / toiletCount : 0;
-      const avgWater = waterCount ? totalWaterScore / waterCount : 0;
-      const combinedRisk = (avgToilet + avgWater) / 2;
-      const prob = Math.min(combinedRisk / 8, 1);
+      // Calculate average score (0-100)
+      const avgScore = validReportsCount > 0 ? totalScore / validReportsCount : 0;
+      const prob = avgScore / 100; // Normalize to 0-1 for visualization if needed
 
       let priority: 'Critical' | 'High' | 'Medium' | 'Low' = 'Low';
-      if (prob >= 0.7) priority = 'Critical';
-      else if (prob >= 0.45) priority = 'High';
-      else if (prob >= 0.3) priority = 'Medium';
+      if (avgScore >= 75) priority = 'Critical';
+      else if (avgScore >= 50) priority = 'High';
+      else if (avgScore >= 25) priority = 'Medium';
 
       const confidence: 'High' | 'Medium' | 'Low' = zoneReports.length > 5 ? 'High' : zoneReports.length > 2 ? 'Medium' : 'Low';
 
@@ -162,11 +154,11 @@ const NGODashboard: React.FC<NGODashboardProps> = ({ user, data, isOnline }) => 
   };
 
   const filteredReports = useMemo(() => {
-    return data.reports.filter(r => (reportFilter === 'ALL' || r.type === reportFilter) && new Date(r.timestamp) > new Date('2026-01-27T05:00:00'));
+    return data.reports.filter(r => (reportFilter === 'ALL' || r.type === reportFilter) && new Date(r.timestamp) > new Date('2026-01-27T06:16:00'));
   }, [data.reports, reportFilter]);
 
   const totalPersonnelHours = useMemo(() => {
-    return data.logs.filter(l => new Date(l.timestamp) > new Date('2026-01-27T05:00:00')).reduce((acc, log) => acc + log.hours, 0);
+    return data.logs.filter(l => new Date(l.timestamp) > new Date('2026-01-27T06:16:00')).reduce((acc, log) => acc + log.hours, 0);
   }, [data.logs]);
 
   const StatusBadge = ({ report }: { report: WASHReport }) => {
@@ -584,7 +576,7 @@ const NGODashboard: React.FC<NGODashboardProps> = ({ user, data, isOnline }) => 
 
                   {/* Compliance Stats */}
                   {(() => {
-                    const filteredLogs = data.logs.filter(log => new Date(log.timestamp).toDateString() === new Date(selectedDate).toDateString() && new Date(log.timestamp) > new Date('2026-01-27T05:00:00'));
+                    const filteredLogs = data.logs.filter(log => new Date(log.timestamp).toDateString() === new Date(selectedDate).toDateString() && new Date(log.timestamp) > new Date('2026-01-27T06:16:00'));
                     const activeVolunteers = data.volunteers || [];
                     const loggedVolunteerNames = new Set(filteredLogs.map(l => l.authorName));
                     // Match roughly by name since we stored name in log. Ideally store ID.
@@ -611,7 +603,7 @@ const NGODashboard: React.FC<NGODashboardProps> = ({ user, data, isOnline }) => 
 
                 {/* Missing Reports Alert Section */}
                 {(() => {
-                  const filteredLogs = data.logs.filter(log => new Date(log.timestamp).toDateString() === new Date(selectedDate).toDateString() && new Date(log.timestamp) > new Date('2026-01-27T05:00:00'));
+                  const filteredLogs = data.logs.filter(log => new Date(log.timestamp).toDateString() === new Date(selectedDate).toDateString() && new Date(log.timestamp) > new Date('2026-01-27T06:16:00'));
                   const activeVolunteers = data.volunteers || [];
                   const loggedVolunteerNames = new Set(filteredLogs.map(l => l.authorName));
                   const missing = activeVolunteers.filter(v => !loggedVolunteerNames.has(v.name || ''));
@@ -659,7 +651,7 @@ const NGODashboard: React.FC<NGODashboardProps> = ({ user, data, isOnline }) => 
                 {/* Filtered Log Feed */}
                 <div className="space-y-4">
                   {(() => {
-                    const filteredLogs = data.logs.filter(log => new Date(log.timestamp).toDateString() === new Date(selectedDate).toDateString() && new Date(log.timestamp) > new Date('2026-01-27T05:00:00'));
+                    const filteredLogs = data.logs.filter(log => new Date(log.timestamp).toDateString() === new Date(selectedDate).toDateString() && new Date(log.timestamp) > new Date('2026-01-27T06:16:00'));
 
                     if (filteredLogs.length === 0) {
                       return (
