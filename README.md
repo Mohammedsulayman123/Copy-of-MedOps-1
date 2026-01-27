@@ -10,8 +10,8 @@ Wash Link is a specialized rapid-response dashboard designed for monitoring wate
 *   **Smart Risk Analysis:** Automated scoring system that identifies critical health risks based on functionality, overcrowding, and water quality.
 
 ## 🚀 Live Demo & Downloads
-- **Web Dashboard (Vercel):** [Click here to view Live Demo](YOUR_VERCEL_LINK_HERE)
-- **Android App:** [Download APK File](YOUR_APK_LINK_HERE)
+- **Web Dashboard (Vercel):** [Click here to view Live Demo](https://copy-of-med-ops-1.vercel.app/#/login)
+- **Android App:** [Download APK File](https://drive.google.com/file/d/1JOuXfiZ7wbohAeQy98i8rE0m6VhPPISj/view?usp=sharing)
 
 ---
 
@@ -66,7 +66,7 @@ From Android Studio, you can run the app on an emulator or a connected physical 
 ---
 
 ## Credits
-**Developed by:** [Your Name / MedOps Team]
+**Developed by:** [MedOps Team]
 
 **Special Thanks:**
 *   **React & Vite Community** for the robust development framework.
