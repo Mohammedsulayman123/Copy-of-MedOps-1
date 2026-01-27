@@ -1,20 +1,87 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# Wash Link - WASH Response Dashboard
 
-# Run and deploy your AI Studio app
+## Project Description
+Wash Link is a specialized rapid-response dashboard designed for monitoring water, sanitation, and hygiene (WASH) facilities in crisis zones. It facilitates real-time data collection from volunteers in the field and provides actionable insights for NGOs to manage risks effectively.
 
-This contains everything you need to run your app locally.
+**Key Features:**
+*   **Volunteer Dashboard:** Allows field staff to log activity hours and submit detailed reports on Toilet and Water Point status, even offline.
+*   **NGO Dashboard:** A visual command center featuring a risk-density map, filtering capabilities, and automated priority calculation (Critical, High, Medium, Low) based on field reports.
+*   **Offline First:** Built with robust offline support to ensure functionality in low-connectivity environments, syncing data automatically when online.
+*   **Smart Risk Analysis:** Automated scoring system that identifies critical health risks based on functionality, overcrowding, and water quality.
 
-View your app in AI Studio: https://ai.studio/apps/drive/1Tf2yLj386tHQU-7BVPVu8A2UEoITNg5k
+## 🚀 Live Demo & Downloads
+- **Web Dashboard (Vercel):** [Click here to view Live Demo](YOUR_VERCEL_LINK_HERE)
+- **Android App:** [Download APK File](YOUR_APK_LINK_HERE)
 
-## Run Locally
+---
 
-**Prerequisites:**  Node.js
+## Installation & Setup
 
+### Prerequisites
+*   **Node.js** (v18 or higher recommended)
+*   **npm** or **yarn**
+*   **Android Studio** (for mobile deployment)
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+### Steps
+1.  **Clone the Repository**
+    ```bash
+    git clone https://github.com/Mohammedsulayman123/MedOps.git
+    cd MedOps
+    ```
+
+2.  **Install Dependencies**
+    ```bash
+    npm install
+    ```
+
+3.  **Environment Setup**
+    *   Ensure you have a Firebase project set up.
+    *   Configure your firebase credentials in `services/firebase.ts`.
+
+---
+
+## Running the Project
+
+### Web Development Mode
+To run the web application locally:
+```bash
+npm run dev
+```
+Access the app at `http://localhost:5173`.
+
+### Production Build
+To build the project for production:
+```bash
+npm run build
+```
+
+### Mobile Deployment (Android)
+To sync and open the project in Android Studio:
+```bash
+npx cap sync android
+npx cap open android
+```
+From Android Studio, you can run the app on an emulator or a connected physical device.
+
+---
+
+## Credits
+**Developed by:** [Your Name / MedOps Team]
+
+**Special Thanks:**
+*   **React & Vite Community** for the robust development framework.
+*   **Firebase** for real-time database and offline persistence capabilities.
+*   **Leaflet** for the interactive mapping visualization.
+
+---
+
+## License
+This project is licensed under the **MIT License**.
+
+Copyright (c) 2026 Wash Link Team.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
