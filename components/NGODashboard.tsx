@@ -2,7 +2,7 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { User, AppData, WASHReport, ReportType, ReportStatus, FieldLog } from '../types';
 import L from 'leaflet';
-import { addReport, addZone, deleteZone, createUserProfile, deleteUser, nudgeVolunteer, addLog } from '../services/db';
+import { addReport, addZone, deleteZone, createUserProfile, deleteUser, nudgeVolunteer, addLog, resetActivityData } from '../services/db';
 import { UserRole } from '../types';
 
 interface NGODashboardProps {
@@ -42,7 +42,7 @@ const NGODashboard: React.FC<NGODashboardProps> = ({ user, data, isOnline }) => 
     const zones = data.zones?.map(z => z.name) || [];
 
     return zones.map(zone => {
-      const zoneReports = data.reports.filter(r => r.zone === zone && r.status !== 'Resolved');
+      const zoneReports = data.reports.filter(r => r.zone === zone && r.status !== 'Resolved' && new Date(r.timestamp) > new Date('2026-01-27T05:00:00'));
       let totalToiletScore = 0;
       let totalWaterScore = 0;
       let toiletCount = 0;
@@ -162,11 +162,11 @@ const NGODashboard: React.FC<NGODashboardProps> = ({ user, data, isOnline }) => 
   };
 
   const filteredReports = useMemo(() => {
-    return data.reports.filter(r => reportFilter === 'ALL' || r.type === reportFilter);
+    return data.reports.filter(r => (reportFilter === 'ALL' || r.type === reportFilter) && new Date(r.timestamp) > new Date('2026-01-27T05:00:00'));
   }, [data.reports, reportFilter]);
 
   const totalPersonnelHours = useMemo(() => {
-    return data.logs.reduce((acc, log) => acc + log.hours, 0);
+    return data.logs.filter(l => new Date(l.timestamp) > new Date('2026-01-27T05:00:00')).reduce((acc, log) => acc + log.hours, 0);
   }, [data.logs]);
 
   const StatusBadge = ({ report }: { report: WASHReport }) => {
@@ -207,16 +207,17 @@ const NGODashboard: React.FC<NGODashboardProps> = ({ user, data, isOnline }) => 
           {user.organization} HQ
         </h1>
         <p className="text-[11px] font-black text-slate-400 uppercase tracking-[0.4em] inline-block border-b-2 border-slate-100 pb-2">
-          Humanitarian Intelligence Portal
+          Volunteer & Aid Tracker
         </p>
+
       </div>
 
       {/* Tactical Map */}
       <div className="bg-[#0f172a] rounded-[2.5rem] overflow-hidden border border-slate-800 shadow-2xl h-[400px] relative">
         <div ref={mapRef} className="w-full h-full tactical-map z-0" />
         <div className="absolute top-6 left-6 z-[10] bg-[#1a2333]/90 backdrop-blur-md border border-white/5 p-5 rounded-2xl shadow-2xl max-w-[240px]">
-          <h3 className="text-[9px] font-black text-blue-400 uppercase tracking-widest mb-1.5">Spatial Intelligence</h3>
-          <p className="text-xs font-black text-white uppercase tracking-tight mb-4">Tactical Deployment Zones</p>
+          <h3 className="text-[9px] font-black text-blue-400 uppercase tracking-widest mb-1.5">Overview</h3>
+          <p className="text-xs font-black text-white uppercase tracking-tight mb-4">Field Map</p>
           <div className="flex items-center space-x-3">
             <div className="flex items-center space-x-1"><div className="w-2 h-2 rounded-full bg-red-500"></div><span className="text-[8px] font-black text-slate-400 uppercase">Critical</span></div>
             <div className="flex items-center space-x-1"><div className="w-2 h-2 rounded-full bg-amber-500"></div><span className="text-[8px] font-black text-slate-400 uppercase">High</span></div>
@@ -452,7 +453,11 @@ const NGODashboard: React.FC<NGODashboardProps> = ({ user, data, isOnline }) => 
               >
                 <div className="flex justify-between items-center mb-6">
                   <h3 className="text-2xl font-black tracking-tight">{res.zone}</h3>
-                  <span className={`text-[8px] px-3 py-1 rounded-md font-black uppercase tracking-widest ${res.priority === 'Critical' ? 'bg-red-500/20 text-red-400 border border-red-500/30' :
+                  {/* Badge removed from here */}
+                </div>
+
+                <div className="mb-6">
+                  <span className={`text-[10px] px-4 py-2 rounded-lg font-black uppercase tracking-widest inline-block w-full text-center ${res.priority === 'Critical' ? 'bg-red-500/20 text-red-400 border border-red-500/30' :
                     res.priority === 'High' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' :
                       res.priority === 'Medium' ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' :
                         'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
@@ -461,24 +466,8 @@ const NGODashboard: React.FC<NGODashboardProps> = ({ user, data, isOnline }) => 
                   </span>
                 </div>
 
-                <div className="space-y-3 mb-6">
-                  <div className="flex justify-between items-center">
-                    <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Infection Risk</span>
-                    <span className="text-[10px] font-black text-slate-200">{(res.prob * 100).toFixed(0)}%</span>
-                  </div>
-                  <div className="w-full bg-white/5 h-2 rounded-full overflow-hidden">
-                    <div className={`h-full transition-all duration-1000 ${res.prob > 0.6 ? 'bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)]' :
-                      res.prob > 0.35 ? 'bg-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.5)]' :
-                        'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]'
-                      }`} style={{ width: `${res.prob * 100}%` }}></div>
-                  </div>
-                </div>
-
                 <div className="flex items-center justify-between pt-4 border-t border-white/5">
-                  <div className="flex items-center space-x-2">
-                    <div className="w-1.5 h-1.5 rounded-full bg-red-500"></div>
-                    <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Confidence: {res.confidence}</span>
-                  </div>
+
                   <span className="text-[8px] font-black text-slate-200 uppercase tracking-widest">{res.reportCount} Active Reports</span>
                 </div>
               </button>
@@ -536,7 +525,7 @@ const NGODashboard: React.FC<NGODashboardProps> = ({ user, data, isOnline }) => 
                 <div className="py-32 text-center text-slate-300 font-black uppercase text-xs tracking-[0.3em]">No signals detected</div>
               ) : (
                 filteredReports.map((report) => (
-                  <div key={report.id} className="p-8 hover:bg-slate-50/50 transition-all border-l-4 border-transparent hover:border-blue-500">
+                  <div key={report.id} className="p-8 hover:bg-slate-50 transition-all border-l-4 border-transparent hover:border-blue-500 bg-slate-50 border border-slate-100 rounded-xl mb-4 shadow-sm">
                     <div className="flex items-center justify-between mb-4">
                       <div className="flex items-center space-x-4">
                         <span className={`text-[9px] font-black uppercase px-3 py-1 rounded-lg ${report.type === ReportType.TOILET ? 'bg-purple-100 text-purple-700' : 'bg-cyan-100 text-cyan-700'}`}>
@@ -595,7 +584,7 @@ const NGODashboard: React.FC<NGODashboardProps> = ({ user, data, isOnline }) => 
 
                   {/* Compliance Stats */}
                   {(() => {
-                    const filteredLogs = data.logs.filter(log => new Date(log.timestamp).toDateString() === new Date(selectedDate).toDateString());
+                    const filteredLogs = data.logs.filter(log => new Date(log.timestamp).toDateString() === new Date(selectedDate).toDateString() && new Date(log.timestamp) > new Date('2026-01-27T05:00:00'));
                     const activeVolunteers = data.volunteers || [];
                     const loggedVolunteerNames = new Set(filteredLogs.map(l => l.authorName));
                     // Match roughly by name since we stored name in log. Ideally store ID.
@@ -622,7 +611,7 @@ const NGODashboard: React.FC<NGODashboardProps> = ({ user, data, isOnline }) => 
 
                 {/* Missing Reports Alert Section */}
                 {(() => {
-                  const filteredLogs = data.logs.filter(log => new Date(log.timestamp).toDateString() === new Date(selectedDate).toDateString());
+                  const filteredLogs = data.logs.filter(log => new Date(log.timestamp).toDateString() === new Date(selectedDate).toDateString() && new Date(log.timestamp) > new Date('2026-01-27T05:00:00'));
                   const activeVolunteers = data.volunteers || [];
                   const loggedVolunteerNames = new Set(filteredLogs.map(l => l.authorName));
                   const missing = activeVolunteers.filter(v => !loggedVolunteerNames.has(v.name || ''));
@@ -670,7 +659,7 @@ const NGODashboard: React.FC<NGODashboardProps> = ({ user, data, isOnline }) => 
                 {/* Filtered Log Feed */}
                 <div className="space-y-4">
                   {(() => {
-                    const filteredLogs = data.logs.filter(log => new Date(log.timestamp).toDateString() === new Date(selectedDate).toDateString());
+                    const filteredLogs = data.logs.filter(log => new Date(log.timestamp).toDateString() === new Date(selectedDate).toDateString() && new Date(log.timestamp) > new Date('2026-01-27T05:00:00'));
 
                     if (filteredLogs.length === 0) {
                       return (
@@ -732,9 +721,7 @@ const NGODashboard: React.FC<NGODashboardProps> = ({ user, data, isOnline }) => 
             {/* Priority Card in Modal */}
             <div className="px-10 py-6">
               <div className="bg-[#1a2333] border border-white/5 rounded-[2rem] p-6 flex items-center space-x-6">
-                <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center text-white text-2xl font-black shadow-[0_0_20px_rgba(37,99,235,0.4)]">
-                  {(selectedZoneDetail.prob * 100).toFixed(0)}%
-                </div>
+
                 <div>
                   <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Risk Mitigation Priority</span>
                   <p className="text-lg font-black text-white uppercase tracking-tight">

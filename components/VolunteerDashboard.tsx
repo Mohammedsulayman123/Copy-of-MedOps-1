@@ -79,10 +79,6 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
     e.preventDefault();
     if (!activity) return;
 
-    if (!isOnline) {
-      alert("You are offline. Log will be saved locally and sync when online.");
-    }
-
     const newLog: FieldLog = {
       id: Math.random().toString(36).substr(2, 9),
       authorName: user.name || user.id,
@@ -92,9 +88,32 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
       synced: isOnline
     };
 
-    await addLog(newLog);
-    setActivity('');
-    alert("Activity Logged!");
+    const savePromise = addLog(newLog);
+
+    if (isOnline) {
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("Timeout")), 3000)
+      );
+
+      try {
+        await Promise.race([savePromise, timeoutPromise]);
+        setActivity('');
+        alert("Activity Logged!");
+      } catch (e: any) {
+        if (e.message === "Timeout") {
+          console.log("Log timed out - treating as offline");
+          setActivity('');
+          alert("You are offline. Log will be saved locally and sync when online.");
+        } else {
+          console.error(e);
+          alert("Failed to log activity");
+        }
+      }
+    } else {
+      savePromise.catch(e => console.error("Offline log failed", e));
+      setActivity('');
+      alert("You are offline. Log will be saved locally and sync when online.");
+    }
   };
 
   /* New State for Duplicate Handling */
@@ -148,9 +167,39 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
       nudges: []
     };
 
-    await addReport(newReport);
-    resetForm();
-    alert('Report Submitted Successfully');
+    // Race addReport against a timeout
+    const savePromise = addReport(newReport);
+
+    if (isOnline) {
+      // Create a timeout promise that rejects after 3 seconds
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("Timeout")), 3000)
+      );
+
+      try {
+        await Promise.race([savePromise, timeoutPromise]);
+        resetForm();
+        alert('Report Submitted Successfully');
+      } catch (e: any) {
+        if (e.message === "Timeout") {
+          // If it timed out, assume we are effectively offline/slow
+          console.log("Submission timed out - treating as offline save");
+          // Let the savePromise finish in background
+          resetForm();
+          alert('Report saved locally. It will be sent when internet comes online.');
+        } else {
+          console.error(e);
+          alert('Failed to submit report');
+          return;
+        }
+      }
+    } else {
+      // Offline: Fire and forget
+      savePromise.catch(e => console.error("Offline save failed", e));
+      resetForm();
+      alert('Report saved locally. It will be sent when internet comes online.');
+    }
+
     setView('history');
   };
 
@@ -345,7 +394,7 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
               <form onSubmit={handleLogActivity} className="flex flex-col sm:flex-row gap-4">
                 <input
                   type="text"
-                  placeholder="What did you achieve today?"
+                  placeholder="Example: Active CAMP:CAMP 1/VOL-54"
                   value={activity}
                   onChange={(e) => setActivity(e.target.value)}
                   className="flex-grow bg-slate-700/50 border-none rounded-2xl px-5 py-4 text-sm focus:ring-2 focus:ring-emerald-500 outline-none placeholder:text-slate-500 text-white"
@@ -370,9 +419,14 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
           <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
             <div className="px-6 py-4 border-b border-slate-50 flex justify-between items-center">
               <h2 className="text-[10px] font-black text-slate-800 uppercase tracking-widest">Recent Activity</h2>
-              <span className="text-[9px] text-slate-400 font-bold uppercase">{data.logs.length} entries</span>
+              <h2 className="text-[10px] font-black text-slate-800 uppercase tracking-widest">Recent Activity</h2>
+              <span className="text-[9px] text-slate-400 font-bold uppercase">{data.logs.filter(l => new Date(l.timestamp) > new Date('2026-01-27T05:00:00')).length} entries</span>
             </div>
             <div className="divide-y divide-slate-50">
+              <div className="p-12 text-center">
+                <p className="text-xs font-black text-slate-300 uppercase tracking-widest">Activity Log Cleared</p>
+              </div>
+              {/* Recent Activity List Hidden as per request
               {data.logs.length === 0 ? (
                 <div className="p-12 text-center">
                   <p className="text-xs font-black text-slate-300 uppercase tracking-widest">No activity logged today</p>
@@ -388,6 +442,7 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
                   </div>
                 ))
               )}
+              */}
             </div>
           </div>
         </div>
@@ -399,14 +454,14 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
             </div>
             <div className="relative z-10">
               <h3 className="text-indigo-300 text-[10px] font-black uppercase mb-2 tracking-[0.2em]">Live Status Feed</h3>
-              <h2 className="text-3xl font-black uppercase tracking-tighter">Audit Resolution Tracking</h2>
-              <p className="text-xs text-indigo-200 mt-2 font-medium">Monitor HQ interventions and facility repairs in real-time.</p>
+              <h2 className="text-3xl font-black uppercase tracking-tighter">Real-time Updates on Interventions and Facility Repairs</h2>
+
             </div>
           </div>
 
           <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-100 overflow-hidden">
             <div className="divide-y divide-slate-50">
-              {data.reports.length === 0 ? (
+              {data.reports.filter(r => new Date(r.timestamp) > new Date('2026-01-27T05:00:00')).length === 0 ? (
                 <div className="p-24 text-center">
                   <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4">
                     <svg className="w-8 h-8 text-slate-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>
@@ -414,7 +469,7 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
                   <p className="text-xs font-black text-slate-300 uppercase tracking-widest">No reports filed yet</p>
                 </div>
               ) : (
-                data.reports.map((report) => (
+                data.reports.filter(r => new Date(r.timestamp) > new Date('2026-01-27T05:00:00')).map((report) => (
                   <div key={report.id} className="p-6 hover:bg-slate-50 transition-all group relative">
                     {/* Nudge Button in Feed */}
                     <div className="absolute top-6 right-6 flex items-center space-x-2">
@@ -500,7 +555,7 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
                 <label className="block text-[10px] font-black uppercase text-slate-400 tracking-[0.2em]">Deployment Zone</label>
                 <div className="grid grid-cols-1 gap-3">
                   <div className="grid grid-cols-1 gap-3">
-                    {data.zones?.map(z => (
+                    {(data.zones && data.zones.length > 0 ? data.zones : ZONES.map(z => ({ id: z, name: z }))).map(z => (
                       <OptionButton
                         key={z.id}
                         label={z.name}

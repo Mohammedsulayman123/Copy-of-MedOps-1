@@ -10,7 +10,9 @@ import {
     getDoc,
     orderBy,
     Timestamp,
-    deleteDoc
+    deleteDoc,
+    getDocs,
+    writeBatch
 } from 'firebase/firestore';
 import { User, FieldLog, WASHReport, Project, AppData, Zone } from '../types';
 
@@ -187,4 +189,22 @@ export const nudgeVolunteer = async (volunteerId: string, senderName: string) =>
         console.error("Error nudging volunteer:", error);
         throw error;
     }
+};
+
+export const resetActivityData = async () => {
+    const batch = writeBatch(db);
+
+    // Clear Reports
+    const reportsSnapshot = await getDocs(collection(db, 'reports'));
+    reportsSnapshot.forEach((doc) => {
+        batch.delete(doc.ref);
+    });
+
+    // Clear Logs
+    const logsSnapshot = await getDocs(collection(db, 'logs'));
+    logsSnapshot.forEach((doc) => {
+        batch.delete(doc.ref);
+    });
+
+    await batch.commit();
 };
