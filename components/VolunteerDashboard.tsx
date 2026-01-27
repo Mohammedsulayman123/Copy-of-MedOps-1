@@ -419,20 +419,15 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
           <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
             <div className="px-6 py-4 border-b border-slate-50 flex justify-between items-center">
               <h2 className="text-[10px] font-black text-slate-800 uppercase tracking-widest">Recent Activity</h2>
-              <h2 className="text-[10px] font-black text-slate-800 uppercase tracking-widest">Recent Activity</h2>
               <span className="text-[9px] text-slate-400 font-bold uppercase">{data.logs.filter(l => new Date(l.timestamp) > new Date('2026-01-27T05:00:00')).length} entries</span>
             </div>
             <div className="divide-y divide-slate-50">
-              <div className="p-12 text-center">
-                <p className="text-xs font-black text-slate-300 uppercase tracking-widest">Activity Log Cleared</p>
-              </div>
-              {/* Recent Activity List Hidden as per request
-              {data.logs.length === 0 ? (
+              {data.logs.filter(l => new Date(l.timestamp) > new Date('2026-01-27T05:00:00')).length === 0 ? (
                 <div className="p-12 text-center">
-                  <p className="text-xs font-black text-slate-300 uppercase tracking-widest">No activity logged today</p>
+                  <p className="text-xs font-black text-slate-300 uppercase tracking-widest">Activity Log Cleared</p>
                 </div>
               ) : (
-                data.logs.map((log) => (
+                data.logs.filter(l => new Date(l.timestamp) > new Date('2026-01-27T05:00:00')).map((log) => (
                   <div key={log.id} className="px-6 py-4 flex items-center justify-between hover:bg-slate-50/50 transition-colors">
                     <div>
                       <h4 className="font-bold text-slate-800 text-sm">{log.activity}</h4>
@@ -442,7 +437,6 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
                   </div>
                 ))
               )}
-              */}
             </div>
           </div>
         </div>
