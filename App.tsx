@@ -5,6 +5,7 @@ import Login from './components/Login';
 import VolunteerDashboard from './components/VolunteerDashboard';
 import NGODashboard from './components/NGODashboard';
 import Navbar from './components/Navbar';
+import SMSGateway from './components/SMSGateway';
 import { auth } from './services/firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { getUserProfile, subscribeToLogs, subscribeToProjects, subscribeToReports, subscribeToZones, subscribeToVolunteers } from './services/db';
@@ -141,6 +142,9 @@ const App: React.FC = () => {
         <footer className="py-4 text-center text-slate-300 text-[9px] uppercase tracking-[0.2em] font-bold">
           &copy; {new Date().getFullYear()} WASH Link | Resilient Core v1.2
         </footer>
+
+        {/* SMS SIMULATION WIDGET */}
+        <SMSGateway />
       </div>
     </HashRouter>
   );
