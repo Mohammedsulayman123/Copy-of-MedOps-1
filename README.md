@@ -15,7 +15,7 @@ Wash Link is a specialized rapid-response dashboard designed for monitoring wate
 ## 🚀 Live Demo & Downloads
 - **Web Dashboard (Vercel):** [Click here to view Live Demo](https://copy-of-med-ops-1.vercel.app/#/login)
 - **Android App:** [Download APK File](https://drive.google.com/file/d/1JOuXfiZ7wbohAeQy98i8rE0m6VhPPISj/view?usp=sharing)
-- **SMS Reporting Demo Video:** [Watch Video Here]([VIDEO_URL_HERE])
+- **SMS Reporting Demo Video:** [Watch Video Here](https://drive.google.com/file/d/1C0qmgfASCVkiDEjYyNw6_lOwnYyNbQhh/view?usp=sharing)
 
 ### 🔑 Demo Credentials
 Use these credentials to try the app:
