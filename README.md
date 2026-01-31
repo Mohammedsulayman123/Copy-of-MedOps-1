@@ -4,14 +4,18 @@
 Wash Link is a specialized rapid-response dashboard designed for monitoring water, sanitation, and hygiene (WASH) facilities in crisis zones. It facilitates real-time data collection from volunteers in the field and provides actionable insights for NGOs to manage risks effectively.
 
 **Key Features:**
-*   **Volunteer Dashboard:** Allows field staff to log activity hours and submit detailed reports on Toilet and Water Point status, even offline.
-*   **NGO Dashboard:** A visual command center featuring a risk-density map, filtering capabilities, and automated priority calculation (Critical, High, Medium, Low) based on field reports.
-*   **Offline First:** Built with robust offline support to ensure functionality in low-connectivity environments, syncing data automatically when online.
-*   **Smart Risk Analysis:** Automated scoring system that identifies critical health risks based on functionality, overcrowding, and water quality.
+*   **Volunteer Dashboard:** Branched assessment logic (Yes/Limited/No functionality) for rapid Toilet and Water Point reporting.
+*   **NGO Dashboard:** Real-time visibility into field operations with a heatmap of critical interventions.
+*   **Resilient Core Architecture:** 
+    *   **Self-Healing User Profiles:** Automatically restores missing database profiles to ensure write permissions.
+    *   **Offline-First Choice:** Offers a split-second choice between **Manual SMS Fallback** or **Encrypted Local Sync** when internet connectivity is poor (< 3s response).
+    *   **Real-time Sync Indicators:** Pulse-animated UI showing exact synchronization status (Pending vs. Synced) using Firestore metadata.
+*   **Unified Risk Calculator:** Complex scoring (0-100) identifying Priority 1 (Critical) threats across multiple facility types.
 
 ## 🚀 Live Demo & Downloads
 - **Web Dashboard (Vercel):** [Click here to view Live Demo](https://copy-of-med-ops-1.vercel.app/#/login)
 - **Android App:** [Download APK File](https://drive.google.com/file/d/1JOuXfiZ7wbohAeQy98i8rE0m6VhPPISj/view?usp=sharing)
+- **SMS Reporting Demo Video:** [Watch Video Here]([VIDEO_URL_HERE])
 
 ### 🔑 Demo Credentials
 Use these credentials to try the app:
