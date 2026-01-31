@@ -67,8 +67,8 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
 
         if (profile) {
           // Existing profile (pre-created by HQ or returning user)
-          // Update sync time
-          await createUserProfile(docId, { ...profile, lastSync: new Date().toISOString() });
+          // LINK AUTH UID TO PROFILE to ensure persistence on refresh
+          await createUserProfile(result.user.uid, { ...profile, lastSync: new Date().toISOString() });
         } else {
           // STRICT MODE: If profile doesn't exist, deny access.
           throw new Error("Access Denied. Your ID is not registered. Please contact HQ.");

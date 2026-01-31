@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { User, AppData, FieldLog, ReportType, WASHReport, ReportStatus } from '../types';
 import { db } from '../services/firebase';
-import { collection, addDoc, doc, setDoc, onSnapshot } from 'firebase/firestore';
+import { doc, onSnapshot } from 'firebase/firestore';
 import { OfflineAI } from '../services/OfflineAI';
 import { addLog, addReport, updateReport, nudgeReport } from '../services/db';
 import { calculateRiskScore } from '../utils/risk';
@@ -106,11 +106,12 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
     if (!activity) return;
 
     const newLog: FieldLog = {
-      id: doc(collection(db, 'logs')).id,
+      id: Math.random().toString(36).substr(2, 9),
       authorName: user.name || user.id,
       timestamp: new Date().toISOString(),
       activity,
-      hours: parseFloat(hours)
+      hours: parseFloat(hours),
+      synced: isOnline
     };
 
     const savePromise = addLog(newLog);
@@ -143,31 +144,6 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
 
   /* New State for Duplicate Handling */
   const [duplicateReport, setDuplicateReport] = useState<WASHReport | null>(null);
-
-  /* New State for Offline Choice */
-  const [showOfflineModal, setShowOfflineModal] = useState(false);
-  const [offlineReportData, setOfflineReportData] = useState<{ formData: any, reportType: ReportType } | null>(null);
-
-  const handleOfflineChoice = async (choice: 'store' | 'sms') => {
-    if (choice === 'sms' && offlineReportData) {
-      try {
-        const smsCode = encodeReport(offlineReportData.formData, offlineReportData.reportType);
-        const targetNumber = '33123004'; // NGO HQ Number
-        await (SMS as any).send({ phoneNumber: targetNumber, message: smsCode });
-        alert(`✅ REPORT SENT VIA SMS\nTarget: ${targetNumber}`);
-      } catch (e: any) {
-        console.error("SMS Failed", e);
-        alert("SMS Failed: " + e.message);
-      }
-    } else {
-      alert("Report saved locally.\nWill sync when internet returns.");
-    }
-
-    // Close and Reset
-    setShowOfflineModal(false);
-    resetForm();
-    setView('history');
-  };
 
   const handleWASHSubmit = async () => {
     // Check for duplicates
@@ -251,11 +227,12 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
     );
 
     const newReport: WASHReport = {
-      id: doc(collection(db, 'reports')).id,
+      id: Math.random().toString(36).substr(2, 9),
       type: reportType,
       zone: formData.zone,
       facilityId: formData.facilityId,
       timestamp: new Date().toISOString(),
+      synced: isOnline,
       status: riskAnalysis ? riskAnalysis.priority === 'CRITICAL' ? 'In Progress' : 'Pending' : 'Pending',
       details: {
         ...formData,
@@ -266,48 +243,57 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
       nudges: []
     };
 
-    // Race addReport against a sensible timeout
-    let submissionSuccess = false;
+    // Race addReport against a timeout
     const savePromise = addReport(newReport);
 
+    let submissionSuccess = false;
+
     if (isOnline) {
-      // 3 second timeout: If HQ doesn't respond fast, offer SMS/Offline choice
+      // Create a timeout promise that rejects after 3 seconds
       const timeoutPromise = new Promise((_, reject) =>
         setTimeout(() => reject(new Error("Timeout")), 3000)
       );
 
       try {
         await Promise.race([savePromise, timeoutPromise]);
+        alert('Report Submitted Successfully');
         submissionSuccess = true;
       } catch (e: any) {
         if (e.message === "Timeout") {
-          console.log("Submission slow - offering offline choice");
-          submissionSuccess = false; // Trigger modal
+          console.log("Submission timed out - treating as offline save");
+          alert('Network timeout. Switching to Offline Mode.');
         } else {
-          console.error("Save failed", e);
-          submissionSuccess = false;
+          console.error(e);
+          alert('Failed to submit report. Trying SMS fallback.');
         }
       }
     } else {
-      // Explicitly offline: Do not mark as success yet, trigger modal below
-      savePromise.catch(e => console.error("Offline background save failed", e));
-      submissionSuccess = false;
+      savePromise.catch(e => console.error("Offline save failed", e));
+      alert('Offline Mode: Saving locally...');
     }
 
-    // AUTOMATIC SMS FALLBACK -> NEW MANUAL CHOICE
+    // AUTOMATIC SMS FALLBACK
     // Trigger if explicitly offline OR if online submission failed/timed out
     if (!isOnline || !submissionSuccess) {
-      // Save data for modal
-      setOfflineReportData({ formData, reportType });
-      setShowOfflineModal(true);
-      return; // Do NOT reset form yet, wait for modal choice
+      try {
+        const smsCode = encodeReport(formData, reportType);
+        const targetNumber = '5551234'; // NGO HQ Number
+
+        // Attempt Native SMS
+        await (SMS as any).send({ phoneNumber: targetNumber, message: smsCode });
+
+        alert(`✅ REPORT SENT VIA SMS\nTarget: ${targetNumber}\nCode: ${smsCode}`);
+      } catch (smsErr: any) {
+        console.error("SMS Send Failed", smsErr);
+        alert(`SMS Failed: ${smsErr.message || JSON.stringify(smsErr)}`);
+        // Don't alert error again if we already alerted offline save, 
+        // but valuable to know if SMS failed too.
+      }
     }
 
     resetForm(); // Reset form after attempting everything
     setView('history');
   };
-
-
 
   const resetForm = () => {
     setStep(1);
@@ -421,7 +407,8 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
         },
         // Keep status as Pending or In Progress based on risk, or keep original? 
         // "Replace the existing unresolved report". Usually resets to Pending unless logic says otherwise.
-        status: riskAnalysis?.priority === 'CRITICAL' ? 'In Progress' : 'Pending'
+        status: riskAnalysis?.priority === 'CRITICAL' ? 'In Progress' : 'Pending',
+        synced: isOnline
       };
 
       await updateReport(originalReport.id, updatedReportData);
@@ -480,6 +467,7 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
         zone: formData.zone,
         facilityId: formData.facilityId,
         timestamp: new Date().toISOString(),
+        synced: isOnline,
         status: riskAnalysis?.priority === 'CRITICAL' ? 'In Progress' : 'Pending',
         details: {
           ...formData,
@@ -514,19 +502,18 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
   const OptionButton = ({ label, isSelected, onClick, showRadio = true }: any) => (
     <button
       onClick={onClick}
-      className={`w-full p-6 rounded-2xl border transition-all duration-300 flex items-center justify-between group relative overflow-hidden ${isSelected
-        ? 'border-blue-500 bg-blue-50/50 text-blue-700 shadow-xl shadow-blue-500/10 backdrop-blur-sm'
-        : 'border-slate-200/60 bg-white/60 hover:bg-white/90 hover:border-blue-300 text-slate-700 hover:shadow-lg hover:shadow-slate-200/50 backdrop-blur-sm'
+      className={`w-full p-5 rounded-2xl border-2 text-left transition-all flex items-center justify-between group ${isSelected
+        ? 'border-blue-600 bg-blue-50 text-blue-800 shadow-md'
+        : 'border-slate-100 bg-white hover:border-slate-300 text-slate-800'
         }`}
     >
-      <span className="font-extrabold uppercase tracking-tight text-sm z-10 relative">{label}</span>
+      <span className="font-black uppercase tracking-tight text-sm">{label}</span>
       {showRadio && (
-        <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all duration-300 z-10 ${isSelected ? 'border-blue-500 bg-blue-500 scale-110' : 'border-slate-300 group-hover:border-blue-400'
+        <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${isSelected ? 'border-blue-600 bg-blue-600' : 'border-slate-200 group-hover:border-slate-300'
           }`}>
-          {isSelected && <div className="w-2.5 h-2.5 rounded-full bg-white shadow-sm"></div>}
+          {isSelected && <div className="w-2 h-2 rounded-full bg-white"></div>}
         </div>
       )}
-      {isSelected && <div className="absolute inset-0 bg-blue-400/5 z-0"></div>}
     </button>
   );
 
@@ -552,14 +539,7 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
   };
 
   /* Check for Daily Log */
-  const hasLoggedToday = data.logs.some(log => {
-    const logDate = new Date(log.timestamp);
-    const today = new Date();
-    return log.authorName === (user.name || user.id) &&
-      logDate.getFullYear() === today.getFullYear() &&
-      logDate.getMonth() === today.getMonth() &&
-      logDate.getDate() === today.getDate();
-  });
+  const hasLoggedToday = data.logs.some(log => log.authorName === (user.name || user.id) && new Date(log.timestamp).toDateString() === new Date().toDateString());
 
   return (
     <div className="w-full max-w-4xl mx-auto space-y-6">
@@ -681,41 +661,24 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
             )}
           </div>
 
-          <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-6 overflow-hidden">
-            <h2 className="text-[10px] font-black text-slate-800 uppercase tracking-widest mb-6 px-2">Recent Activity</h2>
-
-            <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2 no-scrollbar">
-              {data.logs.length === 0 ? (
-                <div className="w-full py-12 text-center">
-                  <p className="text-xs font-black text-slate-300 uppercase tracking-widest">No activity logged yet</p>
+          <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-50 flex justify-between items-center">
+              <h2 className="text-[10px] font-black text-slate-800 uppercase tracking-widest">Recent Activity</h2>
+              <span className="text-[9px] text-slate-400 font-bold uppercase">{data.logs.filter(l => new Date(l.timestamp) > new Date('2026-01-27T05:00:00')).length} entries</span>
+            </div>
+            <div className="divide-y divide-slate-50">
+              {data.logs.filter(l => new Date(l.timestamp) > new Date('2026-01-27T06:16:00')).length === 0 ? (
+                <div className="p-12 text-center">
+                  <p className="text-xs font-black text-slate-300 uppercase tracking-widest">Activity Log Cleared</p>
                 </div>
               ) : (
-                data.logs.map((log) => (
-                  <div
-                    key={log.id}
-                    className="w-full p-5 rounded-2xl border border-slate-50 bg-slate-50/30 hover:bg-slate-50 hover:border-slate-200 transition-all group overflow-hidden relative"
-                  >
-                    <div className="flex items-center justify-between relative z-10">
-                      <div className="space-y-1">
-                        <h4 className="font-bold text-slate-800 text-sm group-hover:text-emerald-700 transition-colors">{log.activity}</h4>
-                        <div className="flex items-center space-x-3">
-                          <p className="text-[10px] text-slate-400 font-bold uppercase">
-                            {new Date(log.timestamp).toLocaleDateString(undefined, { day: 'numeric', month: 'numeric', year: 'numeric' })}
-                          </p>
-                          <span className="text-[10px] text-slate-300">•</span>
-                          <p className="text-[10px] text-slate-500 font-black tracking-tighter uppercase">{log.hours}h Logged</p>
-                        </div>
-                      </div>
-
-                      <div className="flex flex-col items-end gap-1">
-                        <div className={`w-2.5 h-2.5 rounded-full shadow-sm animate-pulse ${log.synced ? 'bg-emerald-500 shadow-emerald-200' : 'bg-amber-500 shadow-amber-200'}`}></div>
-                        <span className={`text-[8px] font-black uppercase tracking-widest ${log.synced ? 'text-emerald-600' : 'text-amber-600'}`}>
-                          {log.synced ? 'Synced' : 'Sync Pending'}
-                        </span>
-                      </div>
+                data.logs.filter(l => new Date(l.timestamp) > new Date('2026-01-27T06:16:00')).map((log) => (
+                  <div key={log.id} className="px-6 py-4 flex items-center justify-between hover:bg-slate-50/50 transition-colors">
+                    <div>
+                      <h4 className="font-bold text-slate-800 text-sm">{log.activity}</h4>
+                      <p className="text-[10px] text-slate-400 font-bold uppercase">{new Date(log.timestamp).toLocaleDateString()} • {log.hours}h</p>
                     </div>
-                    {/* Subtle background decoration */}
-                    <div className="absolute top-0 right-0 -mt-4 -mr-4 w-16 h-16 bg-slate-100/50 rounded-full blur-2xl group-hover:bg-emerald-100/30 transition-all"></div>
+                    <div className={`w-2 h-2 rounded-full ${log.synced ? 'bg-emerald-500' : 'bg-amber-500'}`}></div>
                   </div>
                 ))
               )}
@@ -737,7 +700,7 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
 
           <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-100 overflow-hidden">
             <div className="divide-y divide-slate-50">
-              {data.reports.length === 0 ? (
+              {data.reports.filter(r => new Date(r.timestamp) > new Date('2026-01-27T06:16:00')).length === 0 ? (
                 <div className="p-24 text-center">
                   <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4">
                     <svg className="w-8 h-8 text-slate-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>
@@ -745,7 +708,7 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
                   <p className="text-xs font-black text-slate-300 uppercase tracking-widest">No reports filed yet</p>
                 </div>
               ) : (
-                data.reports.map((report) => (
+                data.reports.filter(r => new Date(r.timestamp) > new Date('2026-01-27T06:16:00')).map((report) => (
                   <div key={report.id} className="p-6 hover:bg-slate-50 transition-all group relative">
                     {/* Nudge Button in Feed */}
                     <div className="absolute top-6 right-6 flex items-center space-x-2">
@@ -764,17 +727,13 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
                       <div className="space-y-1">
                         <div className="flex items-center space-x-2">
                           <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full ${report.type === ReportType.TOILET ? 'bg-purple-100 text-purple-700' : 'bg-cyan-100 text-cyan-700'}`}>
-                            {(report.type || 'UNKNOWN').replace('_', ' ')}
+                            {report.type.replace('_', ' ')}
                           </span>
                           <span className="text-[10px] font-black text-slate-800 uppercase tracking-tight">
                             {report.zone} — <span className="text-blue-600">{report.facilityId}</span>
                           </span>
                         </div>
-                        <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">Submitted: {new Date(report.timestamp).toLocaleDateString()}
-                          <span className={`ml-2 ${report.synced ? 'text-emerald-500' : 'text-amber-500'}`}>
-                            • {report.synced ? 'Synced to HQ' : 'Saved locally - Pending sync'}
-                          </span>
-                        </p>
+                        <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">Submitted: {new Date(report.timestamp).toLocaleString()}</p>
                       </div>
                       <div className="flex items-center space-x-3 pr-16">
                         <StatusBadge status={report.status} />
@@ -788,9 +747,7 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
           </div>
         </div>
       ) : (
-        <div className="bg-white/80 backdrop-blur-2xl rounded-[3rem] shadow-2xl border border-white/40 overflow-hidden flex flex-col min-h-[600px] relative">
-          <div className="absolute inset-0 bg-gradient-to-br from-white/40 to-transparent pointer-events-none z-0"></div>
-
+        <div className="bg-white rounded-[2.5rem] shadow-2xl border border-slate-100 overflow-hidden flex flex-col min-h-[600px]">
           {/* Nudge Notification */}
           {nudgeMessage && !hasLoggedToday && (
             <div className="bg-amber-50 border-l-4 border-amber-500 p-4 mb-4 mx-4 rounded-r shadow-md animate-bounce">
@@ -843,25 +800,9 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
                 >Water Point</button>
               </div>
             </div>
-            <div className="flex items-center space-x-4">
-              {step > 1 && (
-                <button
-                  onClick={() => {
-                    if ([40, 50, 60, 10, 20, 30].includes(step)) {
-                      setStep(3);
-                    } else {
-                      setStep(step - 1);
-                    }
-                  }}
-                  className="bg-white/10 hover:bg-white/20 p-2 rounded-full transition-all"
-                >
-                  <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M15 19l-7-7 7-7" /></svg>
-                </button>
-              )}
-              <h2 className="text-2xl font-black uppercase tracking-tighter">
-                {reportType === ReportType.TOILET ? 'Sanitation Audit' : 'Hydration Check'}
-              </h2>
-            </div>
+            <h2 className="text-2xl font-black uppercase tracking-tighter">
+              {reportType === ReportType.TOILET ? 'Sanitation Audit' : 'Hydration Check'}
+            </h2>
           </div>
 
           {/* Form Content */}
@@ -1344,54 +1285,30 @@ const VolunteerDashboard: React.FC<VolunteerDashboardProps> = ({ user, isOnline,
               </>
             )}
           </div>
-        </div>
-      )}
 
-
-      {showOfflineModal && (
-        <div className="fixed inset-0 bg-slate-900/90 z-50 flex items-center justify-center p-6 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl space-y-4">
-            <div className="text-center space-y-2">
-              <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <span className="text-3xl">⚠️</span>
-              </div>
-              <h3 className="text-xl font-black text-slate-800 uppercase tracking-tight">No Internet</h3>
-              <p className="text-sm text-slate-600 font-medium">We cannot connect to the server.</p>
-              <p className="text-xs text-slate-400">Your report has been saved internally.</p>
-            </div>
-
-            <div className="space-y-3 pt-4">
+          {/* Form Footer */}
+          {step > 1 && (
+            <div className="px-8 py-5 bg-slate-50 border-t border-slate-100 flex items-center justify-center">
               <button
-                onClick={() => handleOfflineChoice('store')}
-                className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 py-4 rounded-xl font-bold text-sm transition-colors border-2 border-slate-200"
+                onClick={() => {
+                  if ([40, 50, 60, 10, 20, 30].includes(step)) {
+                    setStep(3);
+                  } else {
+                    setStep(step - 1);
+                  }
+                }}
+                className="text-[10px] font-black uppercase text-slate-400 hover:text-blue-600 transition-colors tracking-widest flex items-center space-x-2"
               >
-                Store Locally & Sync Later
-              </button>
-
-              <div className="relative">
-                <div className="absolute inset-0 flex items-center" aria-hidden="true">
-                  <div className="w-full border-t border-slate-200"></div>
-                </div>
-                <div className="relative flex justify-center">
-                  <span className="bg-white px-2 text-xs text-slate-400 font-bold uppercase">OR</span>
-                </div>
-              </div>
-
-              <button
-                onClick={() => handleOfflineChoice('sms')}
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white py-4 rounded-xl font-bold text-sm shadow-lg shadow-blue-500/20 transition-all flex items-center justify-center gap-2"
-              >
-                <span>📱</span> Send via SMS Now
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M15 19l-7-7 7-7" /></svg>
+                <span>Back to previous step</span>
               </button>
             </div>
-          </div>
+          )}
         </div>
       )}
 
     </div>
   );
-
 };
 
 export default VolunteerDashboard;
-

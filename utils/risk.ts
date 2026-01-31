@@ -5,168 +5,239 @@ export interface RiskResult {
 }
 
 export function calculateRiskScore(
+    reportType: 'TOILET' | 'WATER_POINT',
     details: {
-        usability?: string;
-        water?: string;
-        soap?: boolean;
-        lighting?: boolean;
-        lock?: boolean;
-        usersPerDay?: string;
-        users?: string[];
+        // Common fields
+        functional?: string;        // "yes" | "limited" | "no"
+        users?: string[];           // ["women", "children", "elderly", "disabled", "general"]
+        usersPerDay?: string;       // "<25" | "25-50" | "50-100" | "100+"
+        notes?: string;
+
+        // Toilet-specific (if functional = yes/limited)
+        water?: string;             // "yes" | "limited" | "no"
+        soap?: string;              // "yes" | "no"
+        lighting?: string;          // "yes" | "no"
+        lock?: string;              // "yes" | "no"
+        issues?: string[];          // ["limited_water", "broken_lighting", etc.]
+
+        // Toilet-specific (if functional = no)
+        reasonUnusable?: string[];  // ["no_water", "blocked", "collapsed", etc.]
+        alternativeNearby?: string; // "yes" | "no" | "unknown"
+
+        // Water Point-specific (if functional = yes)
+        waterAvailable?: string;    // "yes" | "limited"
+        flowStrength?: string;      // "strong" | "weak"
+        quality?: string;           // "clear" | "dirty" | "smelly" | "unknown"
+        waitingTime?: string;       // "<5min" | "5-15min" | ">15min"
+        areaCondition?: string;     // "clean" | "muddy" | "flooded" | "unsafe"
+
+        // Water Point-specific (if functional = limited)
+        wpIssues?: string[];        // ["intermittent", "weak_flow", "poor_quality", etc.]
+
+        // Water Point-specific (if functional = no)
+        wpReasonNonFunctional?: string[]; // ["no_source", "pump_broken", etc.]
+        wpAlternativeNearby?: string;     // "yes" | "no" | "unknown"
+        wpAlternativeDistance?: string;   // "<100m" | "100-300m" | ">300m" | "unknown"
     }
 ): RiskResult {
     let baseScore = 0;
     const reasoning: string[] = [];
 
-    // ===== STEP 1: FUNCTIONALITY (40 points max) =====
-    if (details.usability === 'no') {
-        baseScore += 40;
-        reasoning.push('Facility completely unusable');
-    } else if (details.usability === 'limited') {
-        baseScore += 20;
-        reasoning.push('Facility partially functional');
+    // ===== GATE LOGIC: Functionality Status =====
+    if (details.functional === 'no') {
+        baseScore += 50; // Completely non-functional is critical base
+        reasoning.push(`${reportType === 'TOILET' ? 'Toilet' : 'Water point'} completely non-functional`);
+
+        if (reportType === 'TOILET') {
+            // Check severity of toilet failure
+            if (details.reasonUnusable?.includes('no_water')) baseScore += 10;
+            if (details.reasonUnusable?.includes('blocked')) baseScore += 10;
+            if (details.reasonUnusable?.includes('collapsed') || details.reasonUnusable?.includes('safety_risk')) {
+                baseScore += 20;
+                reasoning.push('Structural failure or safety hazard');
+            }
+            if (details.alternativeNearby === 'no') {
+                baseScore += 15;
+                reasoning.push('No alternative toilet available');
+            }
+        } else {
+            // Water Point non-functional
+            if (details.wpReasonNonFunctional?.includes('contaminated')) {
+                baseScore += 25;
+                reasoning.push('Water contaminated - health hazard');
+            }
+            if (details.wpReasonNonFunctional?.includes('no_source')) {
+                baseScore += 15;
+                reasoning.push('No water source available');
+            }
+            if (details.wpAlternativeNearby === 'no' || details.wpAlternativeDistance === '>300m') {
+                baseScore += 20;
+                reasoning.push('No nearby alternative water source');
+            }
+        }
+
+    } else if (details.functional === 'limited') {
+        baseScore += 25; // Partially functional
+        reasoning.push(`${reportType === 'TOILET' ? 'Toilet' : 'Water point'} partially functional - unreliable`);
+
+        if (reportType === 'TOILET') {
+            // Toilet limited - check specific issues
+            if (details.issues?.includes('limited_water') || details.water === 'limited') {
+                baseScore += 10;
+                reasoning.push('Limited water supply');
+            }
+            if (details.issues?.includes('limited_water') || details.water === 'no') {
+                baseScore += 20;
+                reasoning.push('No water available');
+            }
+            if (details.issues?.includes('broken_lighting') || details.lighting === 'no') {
+                baseScore += 8;
+                reasoning.push('No lighting - night safety risk');
+            }
+            if (details.issues?.includes('no_lock') || details.lock === 'no') {
+                baseScore += 7;
+                reasoning.push('No lock - privacy/safety concern');
+            }
+            if (details.soap === 'no') {
+                baseScore += 10;
+                reasoning.push('No soap - hygiene risk');
+            }
+            if (details.issues?.includes('long_waiting')) {
+                baseScore += 8;
+                reasoning.push('Long waiting times - overcrowding');
+            }
+        } else {
+            // Water Point limited
+            if (details.wpIssues?.includes('intermittent') || details.waterAvailable === 'limited') {
+                baseScore += 15;
+                reasoning.push('Intermittent water supply');
+            }
+            if (details.wpIssues?.includes('weak_flow') || details.flowStrength === 'weak') {
+                baseScore += 10;
+                reasoning.push('Very weak water flow');
+            }
+            if (details.wpIssues?.includes('poor_quality') || details.quality === 'dirty' || details.quality === 'smelly') {
+                baseScore += 20;
+                reasoning.push('Poor water quality - health risk');
+            }
+            if (details.wpIssues?.includes('long_queues') || details.waitingTime === '>15min') {
+                baseScore += 12;
+                reasoning.push('Long queues - access barrier');
+            }
+            if (details.wpIssues?.includes('safety_concern')) {
+                baseScore += 15;
+                reasoning.push('Safety concern reported');
+            }
+        }
+
+    } else if (details.functional === 'yes') {
+        // Functional but may have minor issues
+
+        if (reportType === 'TOILET') {
+            if (details.water === 'no') {
+                baseScore += 25;
+                reasoning.push('No water - critical hygiene issue');
+            } else if (details.water === 'limited') {
+                baseScore += 12;
+                reasoning.push('Limited water supply');
+            }
+
+            if (details.soap === 'no') {
+                baseScore += 15;
+                reasoning.push('No soap - handwashing impossible');
+            }
+
+            if (details.lighting === 'no') {
+                baseScore += 10;
+                reasoning.push('No lighting - night safety risk');
+            }
+
+            if (details.lock === 'no') {
+                baseScore += 8;
+                reasoning.push('No lock - privacy/safety concern');
+            }
+        } else {
+            // Water Point functional - check quality and access
+            if (details.waterAvailable === 'limited') {
+                baseScore += 10;
+                reasoning.push('Limited water availability');
+            }
+
+            if (details.flowStrength === 'weak') {
+                baseScore += 8;
+                reasoning.push('Weak water flow - slow access');
+            }
+
+            if (details.quality === 'dirty') {
+                baseScore += 18;
+                reasoning.push('Dirty water - health risk');
+            } else if (details.quality === 'smelly') {
+                baseScore += 22;
+                reasoning.push('Smelly water - possible contamination');
+            } else if (details.quality === 'unknown') {
+                baseScore += 10;
+                reasoning.push('Water quality unknown - needs testing');
+            }
+
+            if (details.waitingTime === '5-15min') {
+                baseScore += 5;
+                reasoning.push('Moderate waiting times');
+            } else if (details.waitingTime === '>15min') {
+                baseScore += 12;
+                reasoning.push('Long waiting times - access barrier');
+            }
+
+            if (details.areaCondition === 'muddy') {
+                baseScore += 5;
+                reasoning.push('Muddy conditions around water point');
+            } else if (details.areaCondition === 'flooded') {
+                baseScore += 12;
+                reasoning.push('Flooded area - safety and hygiene risk');
+            } else if (details.areaCondition === 'unsafe') {
+                baseScore += 15;
+                reasoning.push('Unsafe area conditions');
+            }
+        }
     }
 
-    // ===== STEP 2: WATER AVAILABILITY (30 points max) =====
-    if (details.water === 'none') {
-        baseScore += 30;
-        reasoning.push('No water available - critical hygiene risk');
-    } else if (details.water === 'limited') {
-        baseScore += 15;
-        reasoning.push('Limited water supply');
-    }
-
-    // ===== STEP 3: SOAP (20 points) =====
-    if (details.soap === false) {
-        baseScore += 20;
-        reasoning.push('No soap - handwashing impossible');
-    }
-
-    // ===== STEP 4: LIGHTING (15 points) =====
-    if (details.lighting === false) {
-        baseScore += 15;
-        reasoning.push('No lighting - safety risk at night');
-    }
-
-    // ===== STEP 5: LOCK/PRIVACY (10 points) =====
-    if (details.lock === false) {
-        baseScore += 10;
-        reasoning.push('No lock - privacy/safety concern');
-    }
-
-    // ===== MULTIPLIERS =====
+    // ===== MULTIPLIERS: Population Pressure =====
     let multiplier = 1.0;
 
-    // Overcrowding multiplier
     if (details.usersPerDay === '50-100') {
         multiplier *= 1.2;
-        reasoning.push('Overcrowded (50-100 users)');
+        reasoning.push('Overcrowded (50-100 users/day)');
     } else if (details.usersPerDay === '100+') {
         multiplier *= 1.5;
-        reasoning.push('Severe overcrowding (100+ users)');
+        reasoning.push('Severe overcrowding (100+ users/day)');
     }
 
-    // Vulnerable population multiplier
+    // ===== MULTIPLIERS: Vulnerable Populations =====
     const vulnerableUsers = details.users?.filter(u =>
         ['women', 'children', 'elderly', 'disabled'].includes(u.toLowerCase())
     ) || [];
 
     if (vulnerableUsers.length > 0) {
         multiplier *= 1.3;
-        reasoning.push(`Vulnerable groups present: ${vulnerableUsers.join(', ')}`);
+        reasoning.push(`Vulnerable groups affected: ${vulnerableUsers.join(', ')}`);
     }
 
-    // ===== FINAL SCORE =====
-    const finalScore = Math.min(Math.round(baseScore * multiplier), 100);
-
-    // ===== PRIORITY CLASSIFICATION =====
-    let priority: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
-    if (finalScore >= 75) {
-        priority = 'CRITICAL';
-    } else if (finalScore >= 50) {
-        priority = 'HIGH';
-    } else if (finalScore >= 25) {
-        priority = 'MEDIUM';
-    } else {
-        priority = 'LOW';
-    }
-
-    return {
-        score: finalScore,
-        priority,
-        reasoning
-    };
-}
-
-export function calculateWaterPointRisk(
-    details: {
-        functional?: string;
-        availability?: string;
-        quality?: string;
-        waitingTime?: string;
-        usersPerDay?: string;
-        users?: string[];
-    }
-): RiskResult {
-    let baseScore = 0;
-    const reasoning: string[] = [];
-
-    // ===== STEP 1: FUNCTIONALITY (40 points) =====
-    if (details.functional?.toLowerCase() === 'no') {
-        baseScore += 40;
-        reasoning.push('Water point non-functional');
-    }
-
-    // ===== STEP 2: WATER AVAILABILITY (30 points) =====
-    if (details.availability?.toLowerCase() === 'none') {
-        baseScore += 30;
-        reasoning.push('No water available');
-    } else if (details.availability?.toLowerCase() === 'limited') {
-        baseScore += 15;
-        reasoning.push('Limited water availability');
-    }
-
-    // ===== STEP 3: WATER QUALITY (25 points) =====
-    if (details.quality?.toLowerCase() === 'dirty') {
-        baseScore += 15;
-        reasoning.push('Dirty water detected');
-    } else if (details.quality?.toLowerCase() === 'smelly') {
-        baseScore += 25;
-        reasoning.push('Potentially contaminated water');
-    }
-
-    // ===== STEP 4: WAITING TIME (15 points) =====
-    if (details.waitingTime === '5–15 min' || details.waitingTime === '5-15 min') {
-        baseScore += 8;
-        reasoning.push('Moderate queue time');
-    } else if (details.waitingTime === '15+ min') {
-        baseScore += 15;
-        reasoning.push('Long waiting time');
-    }
-
-    // ===== MULTIPLIERS =====
-    let multiplier = 1.0;
-
-    // Overcrowding multiplier
-    if (details.usersPerDay === '50-100') {
+    // Special case: Women + no lighting + toilet = higher risk
+    if (reportType === 'TOILET' &&
+        details.users?.some(u => u.toLowerCase() === 'women') &&
+        (details.lighting === 'no' || details.issues?.includes('broken_lighting'))) {
         multiplier *= 1.2;
-        reasoning.push('High usage pressure (50–100 users)');
-    } else if (details.usersPerDay === '100+') {
-        multiplier *= 1.5;
-        reasoning.push('Severe usage pressure (100+ users)');
+        reasoning.push('Women affected by lighting failure - safety critical');
     }
 
-    // Vulnerable population multiplier
-    const vulnerableUsers = details.users?.filter(u =>
-        ['women', 'children', 'elderly', 'disabled'].includes(u.toLowerCase())
-    ) || [];
-
-    if (vulnerableUsers.length > 0) {
-        multiplier *= 1.3;
-        reasoning.push(`Vulnerable groups depend on water point: ${vulnerableUsers.join(', ')}`);
+    // Special case: Children + dirty/smelly water = higher risk
+    if (reportType === 'WATER_POINT' &&
+        details.users?.some(u => u.toLowerCase() === 'children') &&
+        (details.quality === 'dirty' || details.quality === 'smelly')) {
+        multiplier *= 1.25;
+        reasoning.push('Children exposed to poor water quality - high disease risk');
     }
 
-    // ===== FINAL SCORE =====
+    // ===== FINAL CALCULATION =====
     const finalScore = Math.min(Math.round(baseScore * multiplier), 100);
 
     // ===== PRIORITY CLASSIFICATION =====

@@ -1,7 +1,6 @@
 import { db } from './firebase';
 import {
     collection,
-    addDoc,
     onSnapshot,
     query,
     where,
@@ -9,14 +8,36 @@ import {
     setDoc,
     getDoc,
     orderBy,
-    Timestamp,
-    deleteDoc,
-    getDocs,
-    writeBatch
+    deleteDoc
 } from 'firebase/firestore';
-import { User, FieldLog, WASHReport, Project, AppData, Zone } from '../types';
+import { User, FieldLog, WASHReport, Project, Zone } from '../types';
 
-// USERS
+// ==========================================
+// 🛡️ DATA SANITIZATION (The "Undefined" Fix)
+// ==========================================
+// Firestore rejects 'undefined', so we convert it to null.
+// We also convert Dates to ISO strings consistently.
+const sanitizeData = (data: any): any => {
+    if (data === undefined) return null;
+    if (data === null) return null;
+    if (typeof data === 'number' && Number.isNaN(data)) return null; // Firestore rejects NaN
+    if (typeof data !== 'object') return data;
+    if (data instanceof Date) return data.toISOString();
+    if (Array.isArray(data)) return data.map(sanitizeData);
+
+    const sanitized: any = {};
+    for (const key in data) {
+        if (Object.prototype.hasOwnProperty.call(data, key)) {
+            sanitized[key] = sanitizeData(data[key]);
+        }
+    }
+    return sanitized;
+};
+
+// ==========================================
+// 👤 USER PROFILES
+// ==========================================
+
 export const getUserProfile = async (uid: string): Promise<User | null> => {
     try {
         const userDoc = await getDoc(doc(db, 'users', uid));
@@ -32,56 +53,86 @@ export const getUserProfile = async (uid: string): Promise<User | null> => {
 
 export const createUserProfile = async (uid: string, user: User) => {
     try {
-        await setDoc(doc(db, 'users', uid), user, { merge: true });
+        // Safe Update: Merge true prevents overwriting existing fields
+        await setDoc(doc(db, 'users', uid), sanitizeData(user), { merge: true });
     } catch (error) {
         console.error("Error creating user profile:", error);
+        throw error;
     }
 };
 
-// LOGS
+export const deleteUser = async (uid: string) => {
+    try {
+        await deleteDoc(doc(db, 'users', uid));
+    } catch (error) {
+        console.error("Error deleting user:", error);
+        throw error;
+    }
+};
+
+// ==========================================
+// 📝 FIELD LOGS (Volunteers)
+// ==========================================
+
 export const subscribeToLogs = (callback: (logs: FieldLog[]) => void) => {
-    // In a real app, query by organization or user
     const q = query(collection(db, 'logs'), orderBy('timestamp', 'desc'));
-    return onSnapshot(q, (snapshot) => {
-        const logs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as FieldLog));
+    return onSnapshot(q, { includeMetadataChanges: true }, (snapshot) => {
+        const logs = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data(),
+            synced: !snapshot.metadata.hasPendingWrites && !doc.metadata.hasPendingWrites
+        } as FieldLog));
         callback(logs);
+    }, (error) => {
+        console.error("SUBSCRIPTION ERROR (LOGS):", error);
     });
 };
 
 export const addLog = async (log: FieldLog) => {
-    // We overwrite 'id' with Firestore ID or keep the generated one? 
-    // Firestore generates IDs automatically if we use addDoc. 
-    // If we want offline capability, generating ID locally and using setDoc is better, or addDoc handles temporary IDs too.
-    // Let's use addDoc but identifying it might be tricky if we don't store the ID back.
-    // Actually, local persistence handles this.
     try {
-        // Remove 'id' if we want Firestore to generate, OR keep it if we self-generate. 
-        // We defined 'id' in types, so let's stick to self-generated for offline ease or use doc references.
-        // For simplicity, let's treat the local ID as the document ID.
         const { id, ...data } = log;
-        // setDoc with specific ID is safer for offline de-duplication
-        await setDoc(doc(db, 'logs', id), { ...data, synced: true });
+        // 1. Sanitize (Fix undefined)
+        // 2. Merge (Prevent overwrite)
+        await setDoc(doc(db, 'logs', id), sanitizeData({ ...data }), { merge: true });
     } catch (error) {
         console.error("Error adding log:", error);
         throw error;
     }
 };
 
-// REPORTS
+// ==========================================
+// 🚽 WASH REPORTS (Main Feature)
+// ==========================================
+
 export const subscribeToReports = (callback: (reports: WASHReport[]) => void) => {
     const q = query(collection(db, 'reports'), orderBy('timestamp', 'desc'));
-    return onSnapshot(q, (snapshot) => {
-        const reports = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as WASHReport));
+    return onSnapshot(q, { includeMetadataChanges: true }, (snapshot) => {
+        const reports = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data(),
+            synced: !snapshot.metadata.hasPendingWrites && !doc.metadata.hasPendingWrites
+        } as WASHReport));
         callback(reports);
+    }, (error) => {
+        console.error("SUBSCRIPTION ERROR (REPORTS):", error);
     });
 };
 
 export const addReport = async (report: WASHReport) => {
     try {
         const { id, ...data } = report;
-        await setDoc(doc(db, 'reports', id), { ...data, synced: true });
+        await setDoc(doc(db, 'reports', id), sanitizeData({ ...data }), { merge: true });
     } catch (error) {
         console.error("Error adding report:", error);
+        throw error;
+    }
+};
+
+export const updateReport = async (reportId: string, updates: Partial<WASHReport>) => {
+    try {
+        await setDoc(doc(db, 'reports', reportId), sanitizeData(updates), { merge: true });
+    } catch (error) {
+        console.error("Error updating report:", error);
         throw error;
     }
 };
@@ -95,14 +146,13 @@ export const nudgeReport = async (reportId: string, userId: string) => {
             const reportData = reportSnap.data() as WASHReport;
             const currentNudges = reportData.nudges || [];
 
-            // Add new nudge
             const newNudge = {
                 userId,
                 timestamp: new Date().toISOString()
             };
 
             await setDoc(reportRef, {
-                nudges: [...currentNudges, newNudge]
+                nudges: sanitizeData([...currentNudges, newNudge])
             }, { merge: true });
         }
     } catch (error) {
@@ -111,28 +161,30 @@ export const nudgeReport = async (reportId: string, userId: string) => {
     }
 };
 
-// PROJECTS
+// ==========================================
+// 🌍 ZONES & PROJECTS (Metadata)
+// ==========================================
+
 export const subscribeToProjects = (callback: (projects: Project[]) => void) => {
     const q = query(collection(db, 'projects'));
-    return onSnapshot(q, (snapshot) => {
+    return onSnapshot(q, { includeMetadataChanges: true }, (snapshot) => {
         const projects = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Project));
         callback(projects);
-    });
+    }, (error) => console.error("SUBSCRIPTION ERROR (PROJECTS):", error));
 };
 
-// ZONES
 export const subscribeToZones = (callback: (zones: Zone[]) => void) => {
     const q = query(collection(db, 'zones'), orderBy('name'));
-    return onSnapshot(q, (snapshot) => {
+    return onSnapshot(q, { includeMetadataChanges: true }, (snapshot) => {
         const zones = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Zone));
         callback(zones);
-    });
+    }, (error) => console.error("SUBSCRIPTION ERROR (ZONES):", error));
 };
 
 export const addZone = async (zone: Zone) => {
     try {
         const { id, ...data } = zone;
-        await setDoc(doc(db, 'zones', id), data);
+        await setDoc(doc(db, 'zones', id), sanitizeData(data), { merge: true });
     } catch (error) {
         console.error("Error adding zone:", error);
         throw error;
@@ -148,22 +200,17 @@ export const deleteZone = async (zoneId: string) => {
     }
 };
 
-// VOLUNTEERS
+// ==========================================
+// 👥 VOLUNTEER MANAGEMENT
+// ==========================================
+
 export const subscribeToVolunteers = (callback: (volunteers: User[]) => void) => {
     const q = query(collection(db, 'users'), where('role', '==', 'VOLUNTEER'));
-    return onSnapshot(q, (snapshot) => {
+    return onSnapshot(q, { includeMetadataChanges: true }, (snapshot) => {
+        // Note: We map 'docId' too just in case 'id' field is missing inside data
         const volunteers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), docId: doc.id } as User));
         callback(volunteers);
-    });
-};
-
-export const deleteUser = async (uid: string) => {
-    try {
-        await deleteDoc(doc(db, 'users', uid));
-    } catch (error) {
-        console.error("Error deleting user:", error);
-        throw error;
-    }
+    }, (error) => console.error("SUBSCRIPTION ERROR (VOLUNTEERS):", error));
 };
 
 export const nudgeVolunteer = async (volunteerId: string, senderName: string) => {
@@ -182,29 +229,11 @@ export const nudgeVolunteer = async (volunteerId: string, senderName: string) =>
             };
 
             await setDoc(userRef, {
-                nudges: [...currentNudges, newNudge]
+                nudges: sanitizeData([...currentNudges, newNudge])
             }, { merge: true });
         }
     } catch (error) {
         console.error("Error nudging volunteer:", error);
         throw error;
     }
-};
-
-export const resetActivityData = async () => {
-    const batch = writeBatch(db);
-
-    // Clear Reports
-    const reportsSnapshot = await getDocs(collection(db, 'reports'));
-    reportsSnapshot.forEach((doc) => {
-        batch.delete(doc.ref);
-    });
-
-    // Clear Logs
-    const logsSnapshot = await getDocs(collection(db, 'logs'));
-    logsSnapshot.forEach((doc) => {
-        batch.delete(doc.ref);
-    });
-
-    await batch.commit();
 };

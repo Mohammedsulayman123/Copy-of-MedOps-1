@@ -21,7 +21,7 @@ export interface FieldLog {
   timestamp: string;
   activity: string;
   hours: number;
-  synced: boolean;
+  synced?: boolean;
 }
 
 export interface Project {
@@ -29,7 +29,7 @@ export interface Project {
   name: string;
   progress: number;
   status: 'Planning' | 'In Progress' | 'Urgent' | 'Draft';
-  synced: boolean;
+  synced?: boolean;
 }
 
 export enum ReportType {
@@ -37,7 +37,7 @@ export enum ReportType {
   WATER_POINT = 'WATER_POINT'
 }
 
-export type ReportStatus = 'Pending' | 'Acknowledged' | 'In Progress' | 'Resolved';
+export type ReportStatus = 'Pending' | 'Acknowledged' | 'In Progress' | 'Resolved' | 'Archived';
 
 export interface WASHReport {
   id: string;
@@ -45,7 +45,7 @@ export interface WASHReport {
   zone: string;
   facilityId: string;
   timestamp: string;
-  synced: boolean;
+  synced?: boolean;
   status?: ReportStatus;
   details: {
     usable?: string; // Yes, Partially, No
@@ -61,7 +61,23 @@ export interface WASHReport {
     waitingTime?: string;
     targetGroups?: string[];
     users?: string[];
-    isFunctional?: string; // Yes, No
+    isFunctional?: string; // Yes, No, Limited
+    // functional?: string; // Mapped dynamically
+
+    functional?: string; // standardizing on this if possible, or mapping isFunctional to it
+
+    // New Water Point Fields
+    flowStrength?: string;      // "strong" | "weak"
+    areaCondition?: string;     // "clean" | "muddy" | "flooded" | "unsafe"
+    wpIssues?: string[];        // ["intermittent", "weak_flow", "poor_quality", etc.]
+    wpReasonNonFunctional?: string[]; // ["no_source", "pump_broken", etc.]
+    wpAlternativeNearby?: string;     // "yes" | "no" | "unknown"
+    wpAlternativeDistance?: string;   // "<100m" | "100-300m" | ">300m" | "unknown"
+
+    // Toilet specific (ensuring we have them)
+    reasonUnusable?: string[];
+    alternativeNearby?: string;
+    issues?: string[];
     notes?: string;
     urgency?: string;
     riskScore?: number;

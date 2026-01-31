@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { addReport } from '../services/db';
 import { WASHReport, ReportType } from '../types';
-import { calculateRiskScore, calculateWaterPointRisk } from '../utils/risk';
+import { calculateRiskScore } from '../utils/risk';
+import { decodeReport } from '../utils/smsCodec';
 import { Capacitor } from '@capacitor/core';
 
 const SMSGateway: React.FC = () => {
@@ -14,7 +15,7 @@ const SMSGateway: React.FC = () => {
     useEffect(() => {
         const handleNativeSMS = async (event: any) => {
             console.log("Native SMS Received:", event.detail);
-            // alert("NATIVE SMS RECEIVED: " + JSON.stringify(event.detail)); // Removed for production
+            alert("NATIVE SMS RECEIVED: " + JSON.stringify(event.detail)); // Enabled for debugging
             const { body } = event.detail;
             if (body) {
                 const cleanText = body.replace('WASH', '').trim();
@@ -60,8 +61,70 @@ const SMSGateway: React.FC = () => {
         // PARSE FORMAT: [ID] [COMMAND] 
         // Example: T-101 BROKEN
 
+
         const parts = text.split(' ');
-        if (parts.length < 2) return "ERR: Invalid Format. Use [ID] [STATUS]";
+
+        // NEW DECODE LOGIC
+        // Allow length 3 (Header stripped) or 4 (Full message)
+        if (parts.length >= 3) {
+            let fullMsg = text;
+            if (!text.startsWith('WASH')) fullMsg = 'WASH ' + text;
+
+            const decodedReport = decodeReport(fullMsg);
+
+            if (decodedReport && decodedReport.details) {
+                alert("Decoded OK: " + JSON.stringify(decodedReport)); // DEBUG
+                // Calculate Risk with decoded details
+                let riskResult;
+                if (decodedReport.type === ReportType.TOILET) {
+                    riskResult = calculateRiskScore(ReportType.TOILET, {
+                        functional: decodedReport.details.usable?.toLowerCase() === 'yes' ? 'yes' : decodedReport.details.usable?.toLowerCase() === 'limited' ? 'limited' : 'no',
+                        water: decodedReport.details.water?.toLowerCase(),
+                        soap: String(decodedReport.details.soap),
+                        lighting: String(decodedReport.details.lighting),
+                        lock: String(decodedReport.details.lock),
+                        usersPerDay: decodedReport.details.usersPerDay,
+                        users: decodedReport.details.users
+                    });
+                } else {
+                    riskResult = calculateRiskScore(ReportType.WATER_POINT, {
+                        functional: decodedReport.details.isFunctional?.toLowerCase(),
+                        waterAvailable: decodedReport.details.available?.toLowerCase(),
+                        quality: decodedReport.details.quality?.toLowerCase(),
+                        waitingTime: decodedReport.details.waitingTime,
+                        usersPerDay: decodedReport.details.usersPerDay,
+                        users: decodedReport.details.users
+                    });
+                }
+
+                const newReport: WASHReport = {
+                    id: `SMS-${Date.now()}`,
+                    type: decodedReport.type!,
+                    zone: decodedReport.zone!,
+                    facilityId: decodedReport.facilityId!,
+                    timestamp: new Date().toISOString(),
+                    synced: true,
+                    status: 'Pending',
+                    details: {
+                        ...decodedReport.details,
+                        riskScore: riskResult.score,
+                        riskPriority: riskResult.priority,
+                        riskReasoning: [...(riskResult.reasoning || []), 'Reported via SMS Gateway']
+                    }
+                };
+                try {
+                    await addReport(newReport);
+                    alert("DB Save Success!"); // DEBUG
+                } catch (e: any) {
+                    alert("DB Save Failed: " + e.message); // DEBUG
+                }
+                return `SMS PROCESSED: ${decodedReport.facilityId} - Risk: ${riskResult.score}`;
+            } else {
+                alert("Decode Failed logic hit"); // DEBUG 
+            }
+        }
+
+        if (parts.length < 2) return "ERR: Invalid Format. Use [ID] [STATUS] or Standard Code";
 
         const facilityId = parts[0];
         const command = parts.slice(1).join(' '); // Remainder is command
@@ -102,11 +165,11 @@ const SMSGateway: React.FC = () => {
             }
 
             // Calculate Risk (Map to calculateWaterPointRisk expected args)
-            const riskResult = calculateWaterPointRisk({
-                functional: reportData.isFunctional,
-                availability: reportData.available,
-                quality: reportData.quality,
-                waitingTime: reportData.waitingTime,
+            const riskResult = calculateRiskScore(ReportType.WATER_POINT, {
+                functional: reportData.isFunctional?.toLowerCase(),
+                waterAvailable: reportData.available?.toLowerCase() === 'none' ? 'no' : reportData.available?.toLowerCase(), // MAPPING 'None' to 'no'
+                quality: reportData.quality?.toLowerCase(),
+                waitingTime: reportData.waitingTime, // Assuming format matches or is close enough
                 usersPerDay: reportData.usersPerDay,
                 users: reportData.users
             });
@@ -162,12 +225,12 @@ const SMSGateway: React.FC = () => {
             // Ensure lighting is boolean if present
             const lightingBool = typeof reportData.lighting === 'boolean' ? reportData.lighting : undefined;
 
-            const riskResult = calculateRiskScore({
-                usability: reportData.usable,
+            const riskResult = calculateRiskScore(ReportType.TOILET, {
+                functional: reportData.usable === 'yes' ? 'yes' : reportData.usable === 'limited' ? 'limited' : 'no', // Mapping 'usable' to 'functional'
                 water: reportData.water,
-                soap: reportData.soap,
-                lighting: lightingBool,
-                lock: reportData.lock,
+                soap: String(reportData.soap),
+                lighting: String(reportData.lighting),
+                lock: String(reportData.lock),
                 usersPerDay: reportData.usersPerDay,
                 users: reportData.users
             });
@@ -194,83 +257,9 @@ const SMSGateway: React.FC = () => {
         return `SMS RECEIVED. Logged report for ${facilityId}.`;
     };
 
-    return (
-        <>
-            {/* FLOATING ACTION BUTTON */}
-            <div className="fixed bottom-4 right-4 z-50">
-                <button
-                    onClick={toggleOpen}
-                    className={`${isOpen ? 'bg-slate-700' : 'bg-green-600'} hover:scale-105 transition-all shadow-lg text-white p-4 rounded-full flex items-center justify-center`}
-                    title="Simulate SMS Reporting"
-                >
-                    {isOpen ? (
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                    ) : (
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
-                        </svg>
-                    )}
-                </button>
-            </div>
-
-            {/* PHONE INTERFACE POPUP */}
-            {isOpen && (
-                <div className="fixed bottom-20 right-4 z-50 w-72 bg-slate-800 rounded-3xl border-4 border-slate-900 shadow-2xl overflow-hidden font-mono text-sm flex flex-col h-96 animate-fade-in-up">
-                    {/* Phone Header */}
-                    <div className="bg-slate-900 text-slate-400 px-4 py-2 text-xs flex justify-between items-center">
-                        <span>MedOps Cell</span>
-                        <div className="flex space-x-1">
-                            <span>4G</span>
-                            <span className="text-green-500">❚❚❚</span>
-                        </div>
-                    </div>
-
-                    {/* Chat Area */}
-                    <div className="flex-grow bg-slate-100 p-2 overflow-y-auto space-y-2 flex flex-col">
-                        <div className="self-center text-xs text-slate-400 my-2">-- SMS CHANNEL OPEN --</div>
-                        <div className="bg-slate-200 text-slate-700 p-2 rounded-lg rounded-tl-none self-start max-w-[85%] text-xs">
-                            <p><strong>System:</strong> Send report using format: [ID] [STATUS]</p>
-                            <p className="mt-1 opacity-70">Ex: T-104 BROKEN</p>
-                        </div>
-
-                        {history.map((msg, idx) => (
-                            <div
-                                key={idx}
-                                className={`p-2 rounded-lg max-w-[85%] text-xs ${msg.type === 'out'
-                                    ? 'bg-blue-600 text-white self-end rounded-tr-none'
-                                    : 'bg-slate-200 text-slate-800 self-start rounded-tl-none'
-                                    }`}
-                            >
-                                {msg.text}
-                            </div>
-                        ))}
-                    </div>
-
-                    {/* Input Area */}
-                    <div className="bg-slate-200 p-2 flex space-x-2 border-t border-slate-300">
-                        <input
-                            type="text"
-                            className="flex-grow bg-white border border-slate-300 rounded px-2 py-1 text-slate-900 focus:outline-none focus:border-blue-500 placeholder:text-slate-400"
-                            placeholder="Type message..."
-                            value={message}
-                            onChange={(e) => setMessage(e.target.value)}
-                            onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-                            autoFocus
-                        />
-                        <button
-                            onClick={handleSend}
-                            disabled={sending}
-                            className={`bg-green-600 text-white px-3 py-1 rounded font-bold transition-colors ${sending ? 'opacity-50' : 'hover:bg-green-700'}`}
-                        >
-                            {sending ? '...' : '➤'}
-                        </button>
-                    </div>
-                </div>
-            )}
-        </>
-    );
+    // The UI (button and modal) is removed as requested by the user.
+    // The component now runs silently in the background listening for REAL native SMS events.
+    return null;
 };
 
 export default SMSGateway;

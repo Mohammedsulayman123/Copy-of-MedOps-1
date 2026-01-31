@@ -9,6 +9,7 @@ import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.telephony.SmsMessage;
+import android.telephony.SmsManager;
 import androidx.core.app.ActivityCompat;
 import com.getcapacitor.BridgeActivity;
 
@@ -17,12 +18,14 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        // Register Plugin first to ensure it's available to the Bridge
+        registerPlugin(SMSPlugin.class);
         super.onCreate(savedInstanceState);
 
         // Request SMS Permissions at runtime
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            if (checkSelfPermission(Manifest.permission.RECEIVE_SMS) != PackageManager.PERMISSION_GRANTED) {
-                requestPermissions(new String[]{Manifest.permission.RECEIVE_SMS, Manifest.permission.READ_SMS}, 1);
+            if (checkSelfPermission(Manifest.permission.RECEIVE_SMS) != PackageManager.PERMISSION_GRANTED || checkSelfPermission(Manifest.permission.SEND_SMS) != PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(new String[]{Manifest.permission.RECEIVE_SMS, Manifest.permission.READ_SMS, Manifest.permission.SEND_SMS}, 1);
             }
         }
 
@@ -66,6 +69,9 @@ public class MainActivity extends BridgeActivity {
                             if (body != null && body.toUpperCase().startsWith("WASH")) {
                                 String cleanBody = body.replace("'", "").replace("\n", " ").replace("\r", " ").replace("\"", ""); // Sanitize for JS
                                 
+                                // DEBUG: Show Toast
+                                android.widget.Toast.makeText(context, "Native: SMS Received! " + cleanBody, android.widget.Toast.LENGTH_LONG).show();
+
                                 // Send to the Web Layer (React)
                                 if (getBridge() != null) {
                                     getBridge().eval("window.dispatchEvent(new CustomEvent('smsReceived', { detail: { body: '" + cleanBody + "', sender: '" + sender + "' } }));", null);
@@ -75,6 +81,32 @@ public class MainActivity extends BridgeActivity {
                     }
                 }
             }
+        }
+    }
+
+    // CUSTOM SMS PLUGIN
+    @com.getcapacitor.annotation.CapacitorPlugin(name = "SMS")
+    public static class SMSPlugin extends com.getcapacitor.Plugin {
+        @com.getcapacitor.PluginMethod
+        public void send(com.getcapacitor.PluginCall call) {
+            String phoneNumber = call.getString("phoneNumber");
+            String message = call.getString("message");
+
+            if (phoneNumber == null || message == null) {
+                call.reject("Must provide phoneNumber and message");
+                return;
+            }
+
+            try {
+                SmsManager smsManager = SmsManager.getDefault();
+                java.util.ArrayList<String> parts = smsManager.divideMessage(message);
+                smsManager.sendMultipartTextMessage(phoneNumber, null, parts, null, null);
+                call.resolve();
+            } catch (Exception e) {
+                call.reject("Failed to send SMS: " + e.getMessage());
+            }
+
+
         }
     }
 }

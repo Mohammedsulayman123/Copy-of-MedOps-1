@@ -8,7 +8,7 @@ import Navbar from './components/Navbar';
 import SMSGateway from './components/SMSGateway';
 import { auth } from './services/firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { getUserProfile, subscribeToLogs, subscribeToProjects, subscribeToReports, subscribeToZones, subscribeToVolunteers } from './services/db';
+import { getUserProfile, createUserProfile, subscribeToLogs, subscribeToProjects, subscribeToReports, subscribeToZones, subscribeToVolunteers } from './services/db';
 
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
@@ -17,21 +17,61 @@ const App: React.FC = () => {
   const [data, setData] = useState<AppData>({ logs: [], projects: [], reports: [], zones: [], volunteers: [] });
   const [loading, setLoading] = useState(true);
 
-  // Auth Listener
+  // Auth Listener & Optimistic Load
   useEffect(() => {
+    // 1. Try to load from local storage first (Optimistic)
+    const tryLocalLoad = () => {
+      try {
+        const keys = Object.keys(localStorage);
+        const userKey = keys.find(k => k.startsWith('cached_user_'));
+        if (userKey) {
+          const cached = JSON.parse(localStorage.getItem(userKey) || '{}');
+          if (cached && cached.id) {
+            console.log("Optimistic load:", cached.id);
+            setUser(cached);
+            setLoading(false); // Show UI immediately
+          }
+        }
+      } catch (e) {
+        console.error("Local load failed", e);
+      }
+    };
+
+    tryLocalLoad();
+
+    // 2. Firebase Auth Listener (Source of Truth)
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
         // Fetch profile
-        const profile = await getUserProfile(firebaseUser.uid);
-        if (profile) {
-          setUser({ ...profile, lastSync: new Date().toISOString() });
-        } else {
-          // If no profile (shouldn't happen if Login handles it, but handles fresh signups)
-          // For now, if no profile, we might wait or set a temporary user
-          console.log("No profile found for user");
+        try {
+          const profile = await getUserProfile(firebaseUser.uid);
+          if (profile) {
+            setUser({ ...profile, lastSync: new Date().toISOString() });
+            localStorage.setItem(`cached_user_${profile.id}`, JSON.stringify(profile));
+          } else {
+            console.log("No profile found - Creating one...");
+            const newProfile: User = {
+              id: firebaseUser.uid,
+              name: firebaseUser.displayName || "Volunteer",
+              role: UserRole.VOLUNTEER, // Defaulting to Volunteer
+              organization: 'org1', // Default Org
+            };
+            await createUserProfile(firebaseUser.uid, newProfile);
+            setUser(newProfile);
+            localStorage.setItem(`cached_user_${firebaseUser.uid}`, JSON.stringify(newProfile));
+          }
+        } catch (e) {
+          console.error("Profile fetch failed", e);
         }
       } else {
-        setUser(null);
+        // Only clear user if we really are signed out and intended to be
+        // Don't clear if we just have a blip, but here firebaseUser is null means signed out.
+        // We might want to keep the local user for offline read-only if desired, but standard is signout.
+        // For resilience, we check if we were "logging out" or just "offline".
+        // But onAuthStateChanged(null) usually means valid sign out or no token.
+        // We will respect it, but maybe delay clearing if offline? 
+        // For now, let's respect it to allow logout.
+        // setUser(null); 
       }
       setLoading(false);
     });

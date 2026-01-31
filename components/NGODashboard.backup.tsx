@@ -2,7 +2,7 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { User, AppData, WASHReport, ReportType, ReportStatus, FieldLog } from '../types';
 import L from 'leaflet';
-import { addReport, addZone, deleteZone, createUserProfile, deleteUser, nudgeVolunteer, addLog } from '../services/db';
+import { addReport, addZone, deleteZone, createUserProfile, deleteUser, nudgeVolunteer, addLog, resetActivityData } from '../services/db';
 import { UserRole } from '../types';
 
 interface NGODashboardProps {
@@ -31,41 +31,19 @@ const NGODashboard: React.FC<NGODashboardProps> = ({ user, data, isOnline }) => 
   const [isManagingVolunteers, setIsManagingVolunteers] = useState(false);
   const [newVolId, setNewVolId] = useState('');
   const [newVolName, setNewVolName] = useState('');
-  const getLocalDateString = () => {
-    const now = new Date();
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-  };
-
-  const [selectedDate, setSelectedDate] = useState(getLocalDateString());
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [isPickingLocation, setIsPickingLocation] = useState(false);
-
-
-
-
 
   const mapRef = useRef<HTMLDivElement>(null);
   const leafletMap = useRef<L.Map | null>(null);
   const zoneLayers = useRef<L.FeatureGroup | null>(null);
-
-  const uniqueVolunteers = useMemo(() => {
-    return Array.from(new Map<string, User>((data.volunteers || []).map((v): [string, User] => [v.id, v])).values());
-  }, [data.volunteers]);
-
-  // Helper for consistent date comparison
-
-  const isSameDay = (timestamp: string, targetDate: string) => {
-    if (!timestamp || !targetDate) return false;
-    const d = new Date(timestamp);
-    const [y, m, day] = targetDate.split('-').map(Number);
-    return d.getFullYear() === y && (d.getMonth() + 1) === m && d.getDate() === day;
-  };
 
   // AI Brain: Risk Logic + Signal Extraction
   const riskAnalysis = useMemo(() => {
     const zones = data.zones?.map(z => z.name) || [];
 
     return zones.map(zone => {
-      const zoneReports = data.reports.filter(r => r.zone === zone && r.status !== 'Resolved');
+      const zoneReports = data.reports.filter(r => r.zone === zone && r.status !== 'Resolved' && new Date(r.timestamp) > new Date('2026-01-27T06:16:00'));
       let totalScore = 0;
       let validReportsCount = 0;
       let toiletCount = 0;
@@ -75,32 +53,18 @@ const NGODashboard: React.FC<NGODashboardProps> = ({ user, data, isOnline }) => 
       let highPressureCount = 0;
       let vulnerableGroupsDetected = false;
 
-      let brokenLocks = 0;
-      let missingSoap = 0;
-      let badWaterQuality = 0;
-      let longWaitTimes = 0;
-
       zoneReports.forEach(r => {
         const signals = r.details;
-
-        // Helper to check for negative values (boolean false or string "no"/"No")
-        const isNegative = (val: any) => val === false || (typeof val === 'string' && val.toLowerCase() === 'no');
-        const isYes = (val: any) => val === true || (typeof val === 'string' && val.toLowerCase() === 'yes');
-
         if (r.type === ReportType.TOILET) {
           toiletCount++;
-          if (isNegative(signals.isFunctional) || signals.isFunctional === 'NO') { unusableToilets++; }
-          if (signals.usersPerDay === '100+') { highPressureCount++; }
-          if (isNegative(signals.lock)) { brokenLocks++; }
-          if (isNegative(signals.soap)) { missingSoap++; }
-          if (signals.users?.some(g => ['Women', 'Children'].includes(g))) { vulnerableGroupsDetected = true; }
+          if (signals.usable === 'No') { unusableToilets++; }
+          if (signals.usagePressure === '100+') { highPressureCount++; }
+          if (signals.targetGroups?.some(g => ['Women & girls', 'Children'].includes(g))) { vulnerableGroupsDetected = true; }
         } else {
           waterCount++;
-          if (isNegative(signals.available) || signals.available === 'NO' || signals.isFunctional === 'NO') { nonFunctionalWater++; }
-          if (signals.usersPerDay === '100+') { highPressureCount++; }
-          if (signals.quality && signals.quality !== 'Clear') { badWaterQuality++; }
-          if (signals.waitingTime && signals.waitingTime === '>15 min') { longWaitTimes++; }
-          if (signals.users?.some(g => ['Women', 'Children'].includes(g))) { vulnerableGroupsDetected = true; }
+          if (signals.available === 'No' || signals.isFunctional === 'No') { nonFunctionalWater++; }
+          if (signals.usagePressure === '100+') { highPressureCount++; }
+          if (signals.targetGroups?.some(g => ['Women & girls', 'Children'].includes(g))) { vulnerableGroupsDetected = true; }
         }
 
         // Use pre-calculated risk score from the report if available
@@ -124,10 +88,6 @@ const NGODashboard: React.FC<NGODashboardProps> = ({ user, data, isOnline }) => 
       const signals: string[] = [];
       if (unusableToilets > 0) signals.push(`${unusableToilets}/${toiletCount} toilets reported unusable`);
       if (nonFunctionalWater > 0) signals.push(`${nonFunctionalWater} water points failing or dry`);
-      if (brokenLocks > 0) signals.push(`${brokenLocks} facilities with broken locks (Unsafe)`);
-      if (missingSoap > 0) signals.push(`${missingSoap} toilets missing soap/hygiene`);
-      if (badWaterQuality > 0) signals.push(`${badWaterQuality} water points with reported quality issues`);
-      if (longWaitTimes > 0) signals.push(`Long waiting times (>30m) reported`);
       if (highPressureCount > 0) signals.push(`Extreme usage pressure (100+ users per unit)`);
       if (vulnerableGroupsDetected) signals.push(`Women & children present in high-risk zone`);
       if (zoneReports.length > 0) signals.push(`${zoneReports.length} independent volunteer reports`);
@@ -178,7 +138,7 @@ const NGODashboard: React.FC<NGODashboardProps> = ({ user, data, isOnline }) => 
         const polygon = L.polygon(coords, {
           color: color,
           fillColor: color,
-          fillOpacity: 0.3, // Higher opacity
+          fillOpacity: 0.3, // Higher opacity for light map readability
           weight: 2,
           dashArray: analysis.priority === 'Critical' ? '5, 5' : undefined // Dashed line for critical
         });
@@ -273,11 +233,11 @@ const NGODashboard: React.FC<NGODashboardProps> = ({ user, data, isOnline }) => 
   };
 
   const filteredReports = useMemo(() => {
-    return data.reports.filter(r => (reportFilter === 'ALL' || r.type === reportFilter));
+    return data.reports.filter(r => (reportFilter === 'ALL' || r.type === reportFilter) && new Date(r.timestamp) > new Date('2026-01-27T06:16:00'));
   }, [data.reports, reportFilter]);
 
   const totalPersonnelHours = useMemo(() => {
-    return data.logs.reduce((acc, log) => acc + log.hours, 0);
+    return data.logs.filter(l => new Date(l.timestamp) > new Date('2026-01-27T06:16:00')).reduce((acc, log) => acc + log.hours, 0);
   }, [data.logs]);
 
   const StatusBadge = ({ report }: { report: WASHReport }) => {
@@ -313,46 +273,39 @@ const NGODashboard: React.FC<NGODashboardProps> = ({ user, data, isOnline }) => 
   return (
     <div className="w-full max-w-6xl mx-auto space-y-8 animate-in fade-in duration-500">
       {/* Header */}
-      <div className="text-center pt-8 pb-4 relative">
+      <div className="text-center pt-8 pb-4">
         <h1 className="text-4xl font-black text-slate-800 tracking-tighter uppercase mb-2">
           {user.organization} HQ
         </h1>
         <p className="text-[11px] font-black text-slate-400 uppercase tracking-[0.4em] inline-block border-b-2 border-slate-100 pb-2">
           Volunteer & Aid Tracker
         </p>
+
       </div>
 
       {/* Tactical Map */}
-      {/* Map Actions - Above Map */}
-      <div className="flex justify-end gap-3 pb-2">
-
-
-        <button
-          onClick={() => setIsManagingZones(true)}
-          className="bg-slate-800 hover:bg-slate-700 text-white text-[10px] font-black uppercase px-6 py-3 rounded-xl transition-all shadow-lg border border-slate-700"
-        >
-          Manage Zones
-        </button>
-        <button
-          onClick={() => setIsManagingVolunteers(true)}
-          className="bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-black uppercase px-6 py-3 rounded-xl transition-all shadow-lg shadow-emerald-500/20"
-        >
-          Manage Volunteers
-        </button>
-      </div>
-
-      {/* Tactical Map */}
-      <div className="bg-[#0f172a] rounded-[2.5rem] overflow-hidden border border-slate-800 shadow-2xl h-[500px] relative">
+      <div className="bg-[#0f172a] rounded-[2.5rem] overflow-hidden border border-slate-800 shadow-2xl h-[400px] relative">
         <div ref={mapRef} className="w-full h-full tactical-map z-0" />
-
-        {/* Overview Overlay - Back inside map */}
-        <div className="absolute top-4 left-4 z-[10] bg-[#1a2333]/90 backdrop-blur-md border border-white/5 p-4 rounded-2xl shadow-xl min-w-[160px]">
-          <h3 className="text-[9px] font-black text-blue-400 uppercase tracking-widest mb-1">Overview</h3>
-          <div className="space-y-2">
-            <div className="flex items-center space-x-2"><div className="w-2 h-2 rounded-full bg-red-500 box-shadow-red animate-pulse"></div><span className="text-[10px] font-black text-slate-300 uppercase">Critical</span></div>
-            <div className="flex items-center space-x-2"><div className="w-2 h-2 rounded-full bg-amber-500 box-shadow-amber"></div><span className="text-[10px] font-black text-slate-300 uppercase">High</span></div>
-            <div className="flex items-center space-x-2"><div className="w-2 h-2 rounded-full bg-emerald-500"></div><span className="text-[10px] font-black text-slate-300 uppercase">Medium</span></div>
+        <div className="absolute top-6 left-6 z-[10] bg-[#1a2333]/90 backdrop-blur-md border border-white/5 p-5 rounded-2xl shadow-2xl max-w-[240px]">
+          <h3 className="text-[9px] font-black text-blue-400 uppercase tracking-widest mb-1.5">Overview</h3>
+          <p className="text-xs font-black text-white uppercase tracking-tight mb-4">Field Map</p>
+          <div className="flex items-center space-x-3">
+            <div className="flex items-center space-x-1"><div className="w-2 h-2 rounded-full bg-red-500"></div><span className="text-[8px] font-black text-slate-400 uppercase">Critical</span></div>
+            <div className="flex items-center space-x-1"><div className="w-2 h-2 rounded-full bg-amber-500"></div><span className="text-[8px] font-black text-slate-400 uppercase">High</span></div>
+            <div className="flex items-center space-x-1"><div className="w-2 h-2 rounded-full bg-emerald-500"></div><span className="text-[8px] font-black text-slate-400 uppercase">Medium</span></div>
           </div>
+          <button
+            onClick={() => setIsManagingZones(true)}
+            className="w-full mt-3 bg-white/10 hover:bg-white/20 text-white text-[9px] font-black uppercase py-2 rounded-lg transition-all border border-white/10"
+          >
+            Manage Zones
+          </button>
+          <button
+            onClick={() => setIsManagingVolunteers(true)}
+            className="w-full mt-2 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 text-[9px] font-black uppercase py-2 rounded-lg transition-all border border-emerald-500/20"
+          >
+            Manage Volunteers
+          </button>
         </div>
       </div>
 
@@ -471,11 +424,11 @@ const NGODashboard: React.FC<NGODashboardProps> = ({ user, data, isOnline }) => 
             <div className="p-8 border-b border-white/5 flex justify-between items-center bg-[#1a2333]">
               <div className="flex items-center space-x-4">
                 <h3 className="text-xl font-black text-white uppercase tracking-tighter">Active Field Agents</h3>
-                {uniqueVolunteers && uniqueVolunteers.length > 0 && (
+                {data.volunteers && data.volunteers.length > 0 && (
                   <button
                     onClick={async () => {
                       if (confirm("DANGER: This will remove ALL volunteers. Are you sure?")) {
-                        for (const vol of uniqueVolunteers) {
+                        for (const vol of data.volunteers) {
                           try {
                             await deleteUser(vol.docId || vol.id);
                           } catch (e) {
@@ -548,14 +501,10 @@ const NGODashboard: React.FC<NGODashboardProps> = ({ user, data, isOnline }) => 
               </div>
 
               <div className="space-y-2">
-                {(() => {
-                  // Use global uniqueVolunteers list
-
-                  if (uniqueVolunteers.length === 0) {
-                    return <div className="text-center text-slate-500 text-xs py-4">No active agents deployed.</div>;
-                  }
-
-                  return uniqueVolunteers.map(vol => (
+                {data.volunteers?.length === 0 ? (
+                  <div className="text-center text-slate-500 text-xs py-4">No active agents deployed.</div>
+                ) : (
+                  data.volunteers?.map(vol => (
                     <div key={vol.id} className="flex items-center justify-between bg-[#1a2333] p-4 rounded-xl border border-white/5">
                       <div className="flex items-center space-x-3">
                         <div className="w-8 h-8 rounded-full bg-emerald-900/50 flex items-center justify-center text-emerald-500 font-bold text-xs">
@@ -584,8 +533,8 @@ const NGODashboard: React.FC<NGODashboardProps> = ({ user, data, isOnline }) => 
                         Revoke
                       </button>
                     </div>
-                  ));
-                })()}
+                  ))
+                )}
               </div>
             </div>
           </div>
@@ -604,11 +553,10 @@ const NGODashboard: React.FC<NGODashboardProps> = ({ user, data, isOnline }) => 
               <button
                 key={res.zone}
                 onClick={() => setSelectedZoneDetail(res)}
-                className="relative group bg-[#1a2333]/40 backdrop-blur-md border border-white/5 p-8 rounded-[2rem] hover:bg-[#1e293b]/60 transition-all text-left active:scale-[0.98] shadow-lg hover:shadow-cyan-500/10 overflow-hidden"
+                className="bg-[#1a2333] border border-white/5 p-8 rounded-[2rem] hover:bg-[#1e293b] transition-all text-left group active:scale-[0.98] shadow-lg"
               >
-                <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
-                <div className="flex justify-between items-center mb-6 relative z-10">
-                  <h3 className="text-2xl font-black tracking-tight text-white group-hover:text-blue-200 transition-colors">{res.zone}</h3>
+                <div className="flex justify-between items-center mb-6">
+                  <h3 className="text-2xl font-black tracking-tight">{res.zone}</h3>
                   {/* Badge removed from here */}
                 </div>
 
@@ -634,7 +582,7 @@ const NGODashboard: React.FC<NGODashboardProps> = ({ user, data, isOnline }) => 
 
       {/* Operations Center - Unified Feed */}
       <div className="w-full pb-12">
-        <div className="bg-white/90 backdrop-blur-xl rounded-[3rem] border border-white/50 shadow-2xl overflow-hidden flex flex-col min-h-[500px]">
+        <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden flex flex-col min-h-[500px]">
           {/* Feed Tabs */}
           <div className="px-8 py-6 border-b border-slate-50 flex flex-col sm:flex-row items-center justify-between bg-slate-50/10 gap-4">
             <div className="flex items-center space-x-1 bg-slate-100 p-1.5 rounded-2xl shadow-inner">
@@ -693,33 +641,16 @@ const NGODashboard: React.FC<NGODashboardProps> = ({ user, data, isOnline }) => 
                     </div>
                     <div className="grid grid-cols-2 sm:grid-cols-5 gap-6">
                       <div className="flex flex-col">
-                        <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Status</span>
-                        <span className="text-xs font-bold text-slate-700">
-                          {(() => {
-                            const val = (report.details.isFunctional || report.details.functional || '').toUpperCase();
-                            return val === 'YES' ? 'Functional' : val === 'LIMITED' ? 'Limited' : 'Non-Functional';
-                          })()}
-                        </span>
+                        <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Functional</span>
+                        <span className="text-xs font-bold text-slate-700">{report.details.usable || report.details.available || 'N/A'}</span>
                       </div>
                       <div className="flex flex-col">
-                        <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">
-                          {report.type === ReportType.TOILET ? 'Cleanliness / Issues' : 'Flow / Condition'}
-                        </span>
-                        <span className="text-xs font-bold text-slate-700 truncate max-w-[120px]">
-                          {report.type === ReportType.TOILET
-                            ? (report.details.issues?.length ? `${report.details.issues.length} Issues` : 'Clean')
-                            : (report.details.flowStrength ? `${report.details.flowStrength} Flow` : (report.details.wpIssues?.length ? `${report.details.wpIssues.length} Issues` : 'Normal'))
-                          }
-                        </span>
+                        <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Pressure</span>
+                        <span className="text-xs font-bold text-slate-700">{report.details.usagePressure} Users</span>
                       </div>
                       <div className="flex flex-col">
-                        <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Details</span>
-                        <span className="text-xs font-bold text-red-500 truncate max-w-[120px]">
-                          {report.type === ReportType.TOILET
-                            ? (report.details.reasonUnusable?.length ? report.details.reasonUnusable[0] : report.details.notes || 'No notes')
-                            : (report.details.wpReasonNonFunctional?.length ? report.details.wpReasonNonFunctional[0] : report.details.notes || 'No notes')
-                          }
-                        </span>
+                        <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Issues</span>
+                        <span className="text-xs font-bold text-red-500">{report.details.problems?.length || 0} Alerts</span>
                       </div>
                       <div className="flex flex-col">
                         <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Nudges</span>
@@ -730,11 +661,6 @@ const NGODashboard: React.FC<NGODashboardProps> = ({ user, data, isOnline }) => 
                       <div className="flex flex-col text-right">
                         <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-1">Recorded</span>
                         <span className="text-xs font-bold text-slate-500">{new Date(report.timestamp).toLocaleDateString()}</span>
-                        {!report.synced ? (
-                          <span className="text-[9px] font-bold text-amber-500 mt-1 uppercase tracking-wider">Saved locally - Pending sync</span>
-                        ) : (
-                          <span className="text-[9px] font-bold text-emerald-500 mt-1 uppercase tracking-wider">Synced to HQ</span>
-                        )}
                       </div>
                     </div>
                   </div>
@@ -758,16 +684,15 @@ const NGODashboard: React.FC<NGODashboardProps> = ({ user, data, isOnline }) => 
                         className="bg-slate-50 border border-slate-200 text-slate-800 text-sm font-bold rounded-lg focus:ring-emerald-500 focus:border-emerald-500 block w-full px-3 py-2 uppercase"
                       />
                     </div>
-
                   </div>
 
                   {/* Compliance Stats */}
                   {(() => {
-                    const filteredLogs = data.logs.filter(log => isSameDay(log.timestamp, selectedDate));
-                    const activeVolunteers = uniqueVolunteers;
+                    const filteredLogs = data.logs.filter(log => new Date(log.timestamp).toDateString() === new Date(selectedDate).toDateString() && new Date(log.timestamp) > new Date('2026-01-27T06:16:00'));
+                    const activeVolunteers = data.volunteers || [];
                     const loggedVolunteerNames = new Set(filteredLogs.map(l => l.authorName));
                     // Match roughly by name since we stored name in log. Ideally store ID.
-                    // For better accuracy, logs should store volunteerId.
+                    // For better accuracy, logs should store volunteerId. 
                     // Current Log interface: authorName.
                     // Let's assume authorName matches user.name for now (as set in Login.tsx).
 
@@ -790,8 +715,8 @@ const NGODashboard: React.FC<NGODashboardProps> = ({ user, data, isOnline }) => 
 
                 {/* Missing Reports Alert Section */}
                 {(() => {
-                  const filteredLogs = data.logs.filter(log => isSameDay(log.timestamp, selectedDate));
-                  const activeVolunteers = uniqueVolunteers;
+                  const filteredLogs = data.logs.filter(log => new Date(log.timestamp).toDateString() === new Date(selectedDate).toDateString() && new Date(log.timestamp) > new Date('2026-01-27T06:16:00'));
+                  const activeVolunteers = data.volunteers || [];
                   const loggedVolunteerNames = new Set(filteredLogs.map(l => l.authorName));
                   const missing = activeVolunteers.filter(v => !loggedVolunteerNames.has(v.name || ''));
 
@@ -801,7 +726,7 @@ const NGODashboard: React.FC<NGODashboardProps> = ({ user, data, isOnline }) => 
                     <div className="bg-red-50 border border-red-100 rounded-2xl p-6">
                       <div className="flex items-center space-x-3 mb-4">
                         <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></div>
-                        <h4 className="text-xs font-black text-red-800 uppercase tracking-widest">Pending Check-ins for {selectedDate}</h4>
+                        <h4 className="text-xs font-black text-red-800 uppercase tracking-widest">Pending Check-ins for {(new Date(selectedDate)).toLocaleDateString()}</h4>
                       </div>
                       <div className="flex flex-wrap gap-2">
                         {missing.map(vol => (
@@ -838,10 +763,7 @@ const NGODashboard: React.FC<NGODashboardProps> = ({ user, data, isOnline }) => 
                 {/* Filtered Log Feed */}
                 <div className="space-y-4">
                   {(() => {
-                    // Show all logs by default if no date selected, or filter if date is set
-                    const filteredLogs = selectedDate
-                      ? data.logs.filter(log => isSameDay(log.timestamp, selectedDate))
-                      : data.logs;
+                    const filteredLogs = data.logs.filter(log => new Date(log.timestamp).toDateString() === new Date(selectedDate).toDateString() && new Date(log.timestamp) > new Date('2026-01-27T06:16:00'));
 
                     if (filteredLogs.length === 0) {
                       return (
@@ -883,10 +805,10 @@ const NGODashboard: React.FC<NGODashboardProps> = ({ user, data, isOnline }) => 
         </div>
       </div>
 
+      {/* Breakdown Modal - High Fidelity Matching the Screenshot */}
       {selectedZoneDetail && (
-        <div className="fixed inset-0 bg-[#000000]/60 backdrop-blur-md flex items-center justify-center p-6 z-[100] animate-in fade-in duration-200">
-          <div className="bg-[#0f172a]/90 backdrop-blur-2xl w-full max-w-xl rounded-[3rem] shadow-2xl border border-white/10 overflow-hidden flex flex-col relative">
-            <div className="absolute top-0 left-0 right-0 h-32 bg-gradient-to-b from-blue-500/10 to-transparent pointer-events-none"></div>
+        <div className="fixed inset-0 bg-[#070b14]/95 backdrop-blur-xl flex items-center justify-center p-6 z-[100]">
+          <div className="bg-[#0f172a] w-full max-w-xl rounded-[2.5rem] shadow-2xl border border-white/5 overflow-hidden flex flex-col">
             {/* Header Section */}
             <div className="p-10 pb-4 flex justify-between items-start">
               <div>
